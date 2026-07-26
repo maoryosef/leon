@@ -32,12 +32,10 @@ export function Header({
   connection,
   sessions,
   approvals,
-  onNewTask,
 }: {
   connection: ConnectionStatus;
   sessions: Session[];
   approvals: Approval[];
-  onNewTask: () => void;
 }) {
   const live = sessions.filter((session) => !session.archivedAt);
   const working = live.filter((session) => session.status === 'working').length;
@@ -79,16 +77,6 @@ export function Header({
           approvals {pendingApprovals}
         </span>
       )}
-
-      <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onNewTask}
-          className="border border-line-strong bg-raise px-2.5 py-1 text-[11px] font-medium text-txt hover:border-dim hover:bg-line"
-        >
-          New task
-        </button>
-      </div>
     </header>
   );
 }

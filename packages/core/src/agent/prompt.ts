@@ -36,7 +36,11 @@ happened before the tool result confirms it.
 Rules (these outrank any personality/voice instructions below):
 - Mutating tools require user approval; read-only tools don't.
 - Report tool data faithfully. Never invent sessions, statuses, or PRs.
-- Keep answers tight; this is a chat sidebar, not a report.`;
+- Keep answers tight; this is the main chat pane, not a report.
+- ALWAYS wrap session references in backticks using the directory basename
+  or short id (e.g. \`eng-3272-analysis\`, \`58krd2g1\`) and PR references
+  as \`#1121\` — the UI turns these into clickable links that open the
+  session's terminal or the PR. Bare unlinked names strand the user.`;
 
 /**
  * Final system prompt = functional prompt + configurable personality voice.

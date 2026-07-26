@@ -1,8 +1,122 @@
-import type { ComponentProps } from 'react';
+import type { PrChecks, PullRequest, Session, SessionStatus } from '@leon/shared';
+import type { ComponentProps, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { basename } from '../lib/format';
+import { setOpenSession, useBoardState } from '../lib/ws-store';
 
 type MdComponents = ComponentProps<typeof ReactMarkdown>['components'];
+
+/* ------------------------------------------------------------------ */
+/* Session / PR chips — inline code that names a live session (or a    */
+/* tracked PR number) becomes a clickable deep link.                   */
+/* ------------------------------------------------------------------ */
+
+const SESSION_DOT: Record<SessionStatus, string> = {
+  waiting_permission: 'bg-accent',
+  waiting_input: 'bg-accent',
+  working: 'bg-ok',
+  idle_done: 'bg-info',
+  dead: 'bg-faint',
+  unknown: 'bg-faint',
+};
+
+const PR_DOT: Record<PrChecks, string> = {
+  passing: 'bg-ok',
+  failing: 'bg-danger',
+  pending: 'bg-accent',
+  none: 'bg-faint',
+};
+
+/**
+ * Case-insensitive match of a code span against live (non-archived) sessions:
+ * exact match on id, cwd basename, tmux session name, pane id ("%49") or
+ * title; suffix match too, but only for needles ≥ 4 chars so short spans
+ * like `on` don't swallow `leon`.
+ */
+function matchSession(sessions: Session[], raw: string): Session | undefined {
+  const needle = raw.trim().toLowerCase();
+  if (needle.length < 2) return undefined;
+  const allowSuffix = needle.length >= 4;
+  return sessions.find((session) => {
+    if (session.archivedAt) return false;
+    const fields = [
+      session.id,
+      basename(session.cwd),
+      session.tmuxSessionName,
+      session.tmuxPaneId,
+      session.title ?? '',
+    ];
+    return fields.some((field) => {
+      const value = field.toLowerCase();
+      if (!value) return false;
+      return value === needle || (allowSuffix && value.endsWith(needle));
+    });
+  });
+}
+
+/** `#1121` (or `1121`) → the tracked PR with that number, if any. */
+function matchPullRequest(pullRequests: PullRequest[], raw: string): PullRequest | undefined {
+  const match = /^#?(\d+)$/.exec(raw.trim());
+  if (!match) return undefined;
+  const number = Number(match[1]);
+  return pullRequests.find((pr) => pr.number === number);
+}
+
+const CHIP_CLASS =
+  'inline-flex max-w-full items-center gap-1 border border-line-strong bg-bg px-1 py-px ' +
+  'align-baseline font-mono text-[11px] text-txt transition-colors hover:border-accent';
+
+function InlineCode({ children }: { children?: ReactNode }) {
+  const { sessions, pullRequests } = useBoardState();
+
+  const text =
+    typeof children === 'string'
+      ? children
+      : Array.isArray(children) && children.every((child) => typeof child === 'string')
+        ? children.join('')
+        : null;
+
+  if (text !== null) {
+    const session = matchSession(sessions, text);
+    if (session) {
+      return (
+        <button
+          type="button"
+          onClick={() => setOpenSession(session.id)}
+          title={`open session · ${session.cwd} · ${session.status}`}
+          className={CHIP_CLASS}
+        >
+          <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${SESSION_DOT[session.status]}`} />
+          <span className="truncate">{text}</span>
+          <span className="text-faint">›</span>
+        </button>
+      );
+    }
+    const pr = matchPullRequest(pullRequests, text);
+    if (pr) {
+      return (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`${pr.title} · ${pr.state} · checks ${pr.checks}`}
+          className={CHIP_CLASS}
+        >
+          <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${PR_DOT[pr.checks]}`} />
+          <span className="truncate">{text}</span>
+          <span className="text-faint">›</span>
+        </a>
+      );
+    }
+  }
+
+  return (
+    <code className="border border-line bg-bg px-1 py-px font-mono text-[11px] text-txt">
+      {children}
+    </code>
+  );
+}
 
 /**
  * Markdown for Leon's chat messages. XSS-safe by construction:
@@ -31,9 +145,7 @@ const components: MdComponents = {
       // block code (```lang) — className carries language-*
       <code className={`${className} block`}>{children}</code>
     ) : (
-      <code className="border border-line bg-bg px-1 py-px font-mono text-[11px] text-txt">
-        {children}
-      </code>
+      <InlineCode>{children}</InlineCode>
     ),
   pre: ({ children }) => (
     <pre className="my-1.5 overflow-x-auto border border-line bg-bg p-2 font-mono text-[11px] leading-relaxed text-dim">

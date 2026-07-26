@@ -23,9 +23,15 @@ export interface BoardState {
   /** true once GET /api/chat history has been applied */
   chatLoaded: boolean;
   chatStatus: ChatStatus;
+  /** assistant text messages newer than the persisted lastSeen marker */
+  unreadCount: number;
   /** true once a snapshot (WS or REST seed) has been applied */
   loaded: boolean;
   connection: ConnectionStatus;
+  /** session whose TerminalModal is open — shared so chips/dock/rail can all open it */
+  openSessionId: string | null;
+  /** pre-filled chat input requested by other panels; ChatPanel consumes + clears */
+  chatDraft: string | null;
 }
 
 let state: BoardState = {
@@ -37,8 +43,11 @@ let state: BoardState = {
   chatMessages: [],
   chatLoaded: false,
   chatStatus: { state: 'idle', detail: null },
+  unreadCount: 0,
   loaded: false,
   connection: 'connecting',
+  openSessionId: null,
+  chatDraft: null,
 };
 
 const listeners = new Set<() => void>();
@@ -57,6 +66,84 @@ function subscribe(listener: () => void): () => void {
 
 export function useBoardState(): BoardState {
   return useSyncExternalStore(subscribe, () => state);
+}
+
+/* ------------------------------------------------------------------ */
+/* UI slice                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Open (or close, with null) the shared terminal modal. */
+export function setOpenSession(sessionId: string | null): void {
+  if (state.openSessionId === sessionId) return;
+  setState({ ...state, openSessionId: sessionId });
+}
+
+/** Ask ChatPanel to pre-fill its input ("ask Leon" from the dock). */
+export function setChatDraft(draft: string | null): void {
+  if (state.chatDraft === draft) return;
+  setState({ ...state, chatDraft: draft });
+}
+
+/* ------------------------------------------------------------------ */
+/* Unread tracking                                                     */
+/*                                                                     */
+/* A persisted lastSeen marker (createdAt of the newest message the    */
+/* user has actually looked at) splits assistant text messages into    */
+/* seen/unread. Tool chips and the user's own messages never count.    */
+/* ------------------------------------------------------------------ */
+
+const LAST_SEEN_KEY = 'leon.chat.lastSeen';
+
+function loadLastSeen(): number | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_SEEN_KEY);
+    if (!raw) return null;
+    const parsed = Date.parse(raw);
+    return Number.isNaN(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastSeen(at: number): void {
+  try {
+    window.localStorage.setItem(LAST_SEEN_KEY, new Date(at).toISOString());
+  } catch {
+    // localStorage unavailable — unread just won't survive a reload.
+  }
+}
+
+/** null until the first history seed of a fresh browser establishes a baseline. */
+let lastSeenAt: number | null = loadLastSeen();
+
+function countUnread(messages: ChatMessage[]): number {
+  if (lastSeenAt === null) return 0;
+  const marker = lastSeenAt;
+  return messages.filter(
+    (message) =>
+      message.role === 'assistant' &&
+      message.content.kind === 'text' &&
+      Date.parse(message.createdAt) > marker,
+  ).length;
+}
+
+function newestCreatedAt(messages: ChatMessage[]): number | null {
+  let newest: number | null = null;
+  for (const message of messages) {
+    const at = Date.parse(message.createdAt);
+    if (!Number.isNaN(at) && (newest === null || at > newest)) newest = at;
+  }
+  return newest;
+}
+
+/** The chat panel calls this once open + visible + scrolled to bottom. */
+export function markChatSeen(): void {
+  const newest = newestCreatedAt(state.chatMessages);
+  if (newest === null) return;
+  if (lastSeenAt !== null && newest <= lastSeenAt && state.unreadCount === 0) return;
+  lastSeenAt = Math.max(newest, lastSeenAt ?? 0);
+  persistLastSeen(lastSeenAt);
+  if (state.unreadCount !== 0) setState({ ...state, unreadCount: 0 });
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,9 +189,11 @@ export function applyEvent(event: WsEvent): void {
     case 'approval.resolved':
       applyApproval(event.approval);
       break;
-    case 'chat.message':
-      setState({ ...state, chatMessages: capChat(upsert(state.chatMessages, event.message)) });
+    case 'chat.message': {
+      const chatMessages = capChat(upsert(state.chatMessages, event.message));
+      setState({ ...state, chatMessages, unreadCount: countUnread(chatMessages) });
       break;
+    }
     case 'chat.delta':
       // In the schema but not emitted by the daemon yet — ignore gracefully.
       break;
@@ -126,7 +215,14 @@ export function seedChatHistory(history: ChatMessage[]): void {
   if (state.chatLoaded) return;
   let merged = history;
   for (const message of state.chatMessages) merged = upsert(merged, message);
-  setState({ ...state, chatMessages: capChat(merged), chatLoaded: true });
+  const capped = capChat(merged);
+  if (lastSeenAt === null) {
+    // Fresh browser: treat everything already in history as seen so the
+    // first visit isn't greeted by a giant stale count.
+    lastSeenAt = newestCreatedAt(capped) ?? 0;
+    persistLastSeen(lastSeenAt);
+  }
+  setState({ ...state, chatMessages: capped, chatLoaded: true, unreadCount: countUnread(capped) });
 }
 
 /** Seed the store from GET /api/state; a WS snapshot always overwrites it. */

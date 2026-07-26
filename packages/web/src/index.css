@@ -98,9 +98,24 @@
   animation: leon-attn 1.8s ease-in-out infinite;
 }
 
+/* one-shot arrival highlight for chat messages that land while the panel is open */
+@keyframes leon-arrive {
+  from {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.msg-arrive {
+  animation: leon-arrive 1.5s ease-out 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .throb,
-  .attn-pulse {
+  .attn-pulse,
+  .msg-arrive {
     animation: none;
   }
 }
