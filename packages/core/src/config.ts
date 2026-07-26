@@ -29,6 +29,12 @@ const ConfigSchema = z.object({
       model: z.string().default('sonnet'),
     })
     .prefault({}),
+  notifications: z
+    .object({
+      desktop: z.boolean().default(true), // macOS toast via osascript
+      chat: z.boolean().default(true), // Leon comments proactively in chat
+    })
+    .prefault({}),
 });
 
 export type LeonConfig = z.infer<typeof ConfigSchema> & {

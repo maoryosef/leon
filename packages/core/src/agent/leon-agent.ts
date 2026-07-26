@@ -56,6 +56,26 @@ export class LeonAgent {
     return message;
   }
 
+  /**
+   * Feed a status digest to the model WITHOUT it appearing as a user chat
+   * message. Leon decides whether it deserves a proactive comment; replying
+   * exactly `SKIP` keeps him quiet (the reply is swallowed).
+   */
+  injectStatusDigest(digest: string): void {
+    const text =
+      `[automated session-status update — the user did NOT send this and cannot see it]\n${digest}\n\n` +
+      `Report this to the user in ONE short message — they explicitly want to know when a session ` +
+      `finishes its work, waits on them, or dies. Include what to do next if obvious (answer the ` +
+      `prompt, review the output, restart). Reply with exactly SKIP only if this adds nothing new — ` +
+      `you already told them about this exact state, or it's a transient flap that reversed itself.`;
+    this.queue.push({
+      type: 'user',
+      message: { role: 'user', content: text },
+      parent_tool_use_id: null,
+    });
+    this.wake?.();
+  }
+
   private async *inputStream(): AsyncGenerator<SDKUserMessage> {
     while (this.running) {
       const next = this.queue.shift();
@@ -146,6 +166,7 @@ export class LeonAgent {
       } else if (msg.type === 'assistant') {
         for (const block of msg.message.content) {
           if (block.type === 'text' && block.text.trim()) {
+            if (block.text.trim() === 'SKIP') continue; // silent digest ack
             this.chat.append('assistant', { kind: 'text', text: block.text }, this.agentSessionId);
           } else if (block.type === 'tool_use' && block.name.startsWith('mcp__leon__')) {
             // harness-internal tool attempts (ToolSearch etc.) are noise here

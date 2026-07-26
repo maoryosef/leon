@@ -6,6 +6,7 @@ import { EventBus } from './events.js';
 import { Monitor } from './monitor/monitor.js';
 import { ApprovalService } from './services/approval-service.js';
 import { ChatService } from './services/chat-service.js';
+import { NotificationService } from './services/notification-service.js';
 import { PrPoller } from './services/pr-service.js';
 import { SessionService } from './services/session-service.js';
 import { TaskService } from './services/task-service.js';
@@ -23,6 +24,7 @@ export interface LeonCore {
   chat: ChatService;
   approvals: ApprovalService;
   agent: LeonAgent;
+  notifications: NotificationService;
   start(): Promise<void>;
   stop(): void;
 }
@@ -48,6 +50,9 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     tracker: new ApprovalTracker(),
     approvals,
   });
+  const notifications = new NotificationService(config, bus, (digest) =>
+    agent.injectStatusDigest(digest),
+  );
 
   return {
     config,
@@ -61,13 +66,16 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     chat,
     approvals,
     agent,
+    notifications,
     async start() {
       await monitor.start();
       prs.start();
       approvals.start();
       agent.start();
+      notifications.start();
     },
     stop() {
+      notifications.stop();
       agent.stop();
       approvals.stop();
       monitor.stop();

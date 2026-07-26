@@ -15,6 +15,11 @@ and (eventually) helps you drive them, with the personality of Leon Black.
 - **PR monitoring**: every open PR you authored (plus live session
   branches) polled via `gh`, shown in the board's PR rail with checks and
   review state.
+- **Proactive notifications**: when a session finishes its turn, waits on
+  a permission prompt / your input, or dies mid-work, you get a macOS
+  notification AND Leon comments in chat (batched, rate-limited, silent on
+  flapping). Toggle via `[notifications] desktop / chat` in
+  `~/.leon/config.toml`.
 
 - **Discovery**: finds every `claude` process in every tmux pane, no setup.
 - **Status**: each session is `working / waiting_input / waiting_permission /
