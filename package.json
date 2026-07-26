@@ -1,0 +1,22 @@
+{
+  "name": "leon",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
+    "build": "pnpm -r --filter './packages/*' build",
+    "typecheck": "pnpm -r --filter './packages/*' typecheck",
+    "test": "pnpm -r --filter './packages/*' test",
+    "start": "pnpm --filter @leon/web build && pnpm --filter @leon/daemon start",
+    "restart": "node packages/cli/bin/leon.js stop && pnpm start",
+    "stop": "node packages/cli/bin/leon.js stop",
+    "dev": "pnpm --parallel --filter @leon/daemon --filter @leon/web dev",
+    "dev:daemon": "pnpm --filter @leon/daemon dev",
+    "dev:web": "pnpm --filter @leon/web dev"
+  }
+}

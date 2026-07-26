@@ -1,0 +1,22 @@
+{
+  "name": "@leon/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "leon": "./bin/leon.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "@leon/core": "workspace:*",
+    "@leon/shared": "workspace:*",
+    "tsx": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "catalog:"
+  }
+}

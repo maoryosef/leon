@@ -1,0 +1,29 @@
+{
+  "name": "@leon/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "@leon/shared": "workspace:*",
+    "@tanstack/react-query": "^5.80.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "catalog:",
+    "vite": "^7.0.0"
+  }
+}
