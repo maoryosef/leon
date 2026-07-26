@@ -1,16 +1,25 @@
 import { WsEvent } from '@leon/shared';
-import type { Approval, PullRequest, Session, Task } from '@leon/shared';
+import type { Approval, ChatMessage, PullRequest, Session, Task } from '@leon/shared';
 import { useSyncExternalStore } from 'react';
 import type { StateResponse } from './api';
 import { wsUrl } from './token';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
 
+export interface ChatStatus {
+  state: 'thinking' | 'idle' | 'error';
+  detail: string | null;
+}
+
 export interface BoardState {
   tasks: Task[];
   sessions: Session[];
   pullRequests: PullRequest[];
   approvals: Approval[];
+  chatMessages: ChatMessage[];
+  /** true once GET /api/chat history has been applied */
+  chatLoaded: boolean;
+  chatStatus: ChatStatus;
   /** true once a snapshot (WS or REST seed) has been applied */
   loaded: boolean;
   connection: ConnectionStatus;
@@ -21,6 +30,9 @@ let state: BoardState = {
   sessions: [],
   pullRequests: [],
   approvals: [],
+  chatMessages: [],
+  chatLoaded: false,
+  chatStatus: { state: 'idle', detail: null },
   loaded: false,
   connection: 'connecting',
 };
@@ -85,10 +97,30 @@ export function applyEvent(event: WsEvent): void {
       setState({ ...state, approvals: upsert(state.approvals, event.approval) });
       break;
     case 'chat.message':
+      setState({ ...state, chatMessages: capChat(upsert(state.chatMessages, event.message)) });
+      break;
     case 'chat.delta':
-      // Phase 2 (chat) — intentionally ignored for now.
+      // In the schema but not emitted by the daemon yet — ignore gracefully.
+      break;
+    case 'chat.status':
+      setState({ ...state, chatStatus: { state: event.state, detail: event.detail ?? null } });
       break;
   }
+}
+
+/** Mirror the daemon's history cap so a long-lived tab doesn't grow unbounded. */
+const CHAT_CAP = 200;
+
+function capChat(messages: ChatMessage[]): ChatMessage[] {
+  return messages.length > CHAT_CAP ? messages.slice(-CHAT_CAP) : messages;
+}
+
+/** Seed chat from GET /api/chat; WS messages that raced ahead are layered on top. */
+export function seedChatHistory(history: ChatMessage[]): void {
+  if (state.chatLoaded) return;
+  let merged = history;
+  for (const message of state.chatMessages) merged = upsert(merged, message);
+  setState({ ...state, chatMessages: capChat(merged), chatLoaded: true });
 }
 
 /** Seed the store from GET /api/state; a WS snapshot always overwrites it. */

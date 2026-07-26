@@ -2,8 +2,10 @@ import type { Session } from '@leon/shared';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Board } from './components/Board';
+import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
 import { NewTaskForm } from './components/NewTaskForm';
+import { PrRail } from './components/PrRail';
 
 // xterm is heavy — split it out so the board loads lean.
 const TerminalModal = lazy(() =>
@@ -66,24 +68,31 @@ export function App() {
         onNewTask={() => setNewTaskOpen(true)}
       />
 
-      {board.loaded ? (
-        <Board
-          tasks={board.tasks}
-          sessions={board.sessions}
-          pullRequests={board.pullRequests}
-          onOpenSession={(session) => setOpenSessionId(session.id)}
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="font-mono text-[11.5px] text-faint">
-            {isError && board.connection !== 'connected'
-              ? 'daemon unreachable — retrying…'
-              : 'loading state…'}
-          </p>
-        </div>
-      )}
+      {/* relative so the chat panel can overlay from the right on narrow screens */}
+      <div className="relative flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {board.loaded && <PrRail pullRequests={board.pullRequests} />}
 
-      {/* Phase 2: Leon chat panel mounts here (right-hand drawer). */}
+          {board.loaded ? (
+            <Board
+              tasks={board.tasks}
+              sessions={board.sessions}
+              pullRequests={board.pullRequests}
+              onOpenSession={(session) => setOpenSessionId(session.id)}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center">
+              <p className="font-mono text-[11.5px] text-faint">
+                {isError && board.connection !== 'connected'
+                  ? 'daemon unreachable — retrying…'
+                  : 'loading state…'}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <ChatPanel />
+      </div>
 
       {newTaskOpen && <NewTaskForm onClose={() => setNewTaskOpen(false)} />}
       {openSession && (

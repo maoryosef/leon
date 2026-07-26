@@ -61,6 +61,21 @@ export class SessionService {
     return new Set(rows.map((r) => r.transcript_path));
   }
 
+  /** Fuzzy lookup used by the CLI and Leon's tools: id, id suffix, tmux
+   * session name, cwd basename, or title substring — live sessions only. */
+  findByQuery(query: string): Session | null {
+    const live = this.listActive().filter((s) => s.status !== 'dead');
+    const q = query.toLowerCase();
+    return (
+      live.find((s) => s.id.toLowerCase() === q) ??
+      live.find((s) => s.id.toLowerCase().endsWith(q)) ??
+      live.find((s) => s.tmuxSessionName.toLowerCase() === q) ??
+      live.find((s) => (s.cwd.split('/').pop() ?? '').toLowerCase() === q) ??
+      live.find((s) => (s.title ?? '').toLowerCase().includes(q)) ??
+      null
+    );
+  }
+
   createFromPane(pane: TmuxPane, origin: SessionOrigin): Session {
     const now = nowIso();
     const id = ulid();

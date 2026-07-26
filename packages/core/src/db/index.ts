@@ -112,6 +112,19 @@ const MIGRATIONS: string[] = [
     payload TEXT
   );
   `,
+  // 002 — repos are now identified by owner/repo (path = "gh:owner/repo");
+  // old local-path-keyed rows would duplicate, so reset this cache data
+  `
+  DELETE FROM pull_requests;
+  DELETE FROM repos;
+  `,
+  // 003 — small key/value store (agent session id, misc daemon state)
+  `
+  CREATE TABLE kv (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 export type LeonDb = Database.Database;

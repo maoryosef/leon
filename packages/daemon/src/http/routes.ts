@@ -4,6 +4,7 @@ import { approvalFromRow } from '@leon/core';
 import {
   CreateTaskInput,
   LinkSessionInput,
+  SendChatInput,
   UpdateSessionInput,
   UpdateTaskInput,
 } from '@leon/shared';
@@ -55,6 +56,15 @@ export function registerRoutes(app: FastifyInstance, core: LeonCore): void {
         : core.sessions.get(id);
     if (!session) return reply.code(404).send({ error: 'session not found' });
     return session;
+  });
+
+  app.get('/api/chat', async () => core.chat.list());
+
+  app.post('/api/chat', async (req, reply) => {
+    const input = SendChatInput.safeParse(req.body);
+    if (!input.success) return reply.code(400).send({ error: input.error.message });
+    core.agent.send(input.data.text);
+    return reply.code(202).send({ accepted: true });
   });
 
   app.get('/api/sessions/:id/capture', async (req, reply) => {

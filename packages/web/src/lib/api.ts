@@ -1,7 +1,9 @@
 import type {
   Approval,
+  ChatMessage,
   CreateTaskInput,
   PullRequest,
+  SendChatInput,
   Session,
   Task,
   UpdateTaskInput,
@@ -98,4 +100,17 @@ export function updateSessionTitle(id: string, title: string | null): Promise<Se
 
 export function fetchCapture(id: string): Promise<{ text: string }> {
   return request<{ text: string }>(`/api/sessions/${encodeURIComponent(id)}/capture`);
+}
+
+/** Full chat history, oldest first (daemon caps it at 200). */
+export function fetchChatHistory(): Promise<ChatMessage[]> {
+  return request<ChatMessage[]>('/api/chat');
+}
+
+/** 202 on accept — the persisted message (and Leon's reply) arrive via WS. */
+export function sendChat(input: SendChatInput): Promise<{ accepted: boolean }> {
+  return request<{ accepted: boolean }>('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }

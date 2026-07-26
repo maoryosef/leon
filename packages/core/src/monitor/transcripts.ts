@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,6 +13,47 @@ export function encodeProjectDir(cwd: string): string {
 
 export function projectsRoot(): string {
   return process.env.LEON_CLAUDE_PROJECTS_DIR ?? join(homedir(), '.claude', 'projects');
+}
+
+/** Compact view of the last N transcript records — for Leon's
+ * get_session_transcript_tail tool. Defensive: unknown lines are skipped. */
+export function readTranscriptTail(
+  path: string,
+  entries: number,
+): { role: string; text?: string; tool?: string }[] {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return [];
+  }
+  const lines = raw.split('\n').filter(Boolean).slice(-Math.max(entries * 3, 30));
+  const out: { role: string; text?: string; tool?: string }[] = [];
+  for (const line of lines) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (obj.type !== 'assistant' && obj.type !== 'user') continue;
+    const message = obj.message as { content?: unknown } | undefined;
+    const content = message?.content;
+    if (typeof content === 'string') {
+      out.push({ role: obj.type, text: content.slice(0, 400) });
+      continue;
+    }
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      const b = block as Record<string, unknown>;
+      if (b.type === 'text' && typeof b.text === 'string') {
+        out.push({ role: obj.type as string, text: (b.text as string).slice(0, 400) });
+      } else if (b.type === 'tool_use' && typeof b.name === 'string') {
+        out.push({ role: obj.type as string, tool: b.name as string });
+      }
+    }
+  }
+  return out.slice(-entries);
 }
 
 export interface TranscriptCandidate {

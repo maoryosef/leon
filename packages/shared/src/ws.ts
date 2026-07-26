@@ -30,5 +30,10 @@ export const WsEvent = z.discriminatedUnion('type', [
     messageId: z.string(),
     delta: z.string(),
   }),
+  z.object({
+    type: z.literal('chat.status'),
+    state: z.enum(['thinking', 'idle', 'error']),
+    detail: z.string().nullish(),
+  }),
 ]);
 export type WsEvent = z.infer<typeof WsEvent>;

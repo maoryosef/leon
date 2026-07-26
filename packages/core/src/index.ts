@@ -1,7 +1,9 @@
+import { LeonAgent } from './agent/leon-agent.js';
 import { loadConfig, type LeonConfig } from './config.js';
 import { openDb, type LeonDb } from './db/index.js';
 import { EventBus } from './events.js';
 import { Monitor } from './monitor/monitor.js';
+import { ChatService } from './services/chat-service.js';
 import { PrPoller } from './services/pr-service.js';
 import { SessionService } from './services/session-service.js';
 import { TaskService } from './services/task-service.js';
@@ -16,6 +18,8 @@ export interface LeonCore {
   tasks: TaskService;
   monitor: Monitor;
   prs: PrPoller;
+  chat: ChatService;
+  agent: LeonAgent;
   start(): Promise<void>;
   stop(): void;
 }
@@ -31,6 +35,8 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     scrapeMs: config.discovery.scrapeMs,
   });
   const prs = new PrPoller(db, bus, sessions, config.discovery.prPollMs);
+  const chat = new ChatService(db, bus);
+  const agent = new LeonAgent(config, bus, chat, { sessions, tasks, prs, tmux });
 
   return {
     config,
@@ -41,11 +47,15 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     tasks,
     monitor,
     prs,
+    chat,
+    agent,
     async start() {
       await monitor.start();
       prs.start();
+      agent.start();
     },
     stop() {
+      agent.stop();
       monitor.stop();
       prs.stop();
       db.close();
@@ -62,6 +72,9 @@ export { statusFromPaneContent } from './monitor/pane-heuristics.js';
 export { statusFromHook } from './monitor/hook-signals.js';
 export { interpretTranscriptLine, TranscriptTailer } from './monitor/transcript-tailer.js';
 export { encodeProjectDir, findTranscripts, projectsRoot } from './monitor/transcripts.js';
+export { LeonAgent } from './agent/leon-agent.js';
+export { composeSystemPrompt } from './agent/prompt.js';
+export { ChatService } from './services/chat-service.js';
 export { SessionService } from './services/session-service.js';
 export { TaskService } from './services/task-service.js';
 export { PrPoller } from './services/pr-service.js';

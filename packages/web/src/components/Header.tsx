@@ -1,5 +1,21 @@
 import type { Approval, Session } from '@leon/shared';
+import { useState } from 'react';
 import type { ConnectionStatus } from '../lib/ws-store';
+
+/** The man himself — packages/web/public/leon.png (swap the file to change it). */
+function LeonAvatar() {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <img
+      src="/leon.png"
+      alt=""
+      draggable={false}
+      onError={() => setFailed(true)}
+      className="size-7 rounded-md object-cover select-none"
+    />
+  );
+}
 
 function connectionMeta(connection: ConnectionStatus): { className: string; label: string } {
   switch (connection) {
@@ -43,6 +59,7 @@ export function Header({
   return (
     <header className="flex h-11 shrink-0 items-center gap-4 border-b border-line bg-panel px-4">
       <div className="flex items-center gap-2.5">
+        <LeonAvatar />
         <span className="font-mono text-sm font-bold tracking-[0.3em] text-accent select-none">
           LEON
         </span>

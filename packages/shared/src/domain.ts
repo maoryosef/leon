@@ -110,11 +110,18 @@ export const Approval = z.object({
 });
 export type Approval = z.infer<typeof Approval>;
 
+/** What a chat message holds: plain text, or a tool call Leon made. */
+export const ChatContent = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), text: z.string() }),
+  z.object({ kind: z.literal('tool'), tool: z.string(), input: z.unknown() }),
+]);
+export type ChatContent = z.infer<typeof ChatContent>;
+
 export const ChatMessage = z.object({
   id: z.string(),
-  agentSessionId: z.string(),
+  agentSessionId: z.string(), // '' until the agent session is established
   role: z.enum(['user', 'assistant', 'system', 'tool']),
-  content: z.unknown(),
+  content: ChatContent,
   createdAt: z.string(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

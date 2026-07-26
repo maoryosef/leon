@@ -3,7 +3,18 @@
 A sidekick agent that watches over your Claude Code sessions running in tmux —
 and (eventually) helps you drive them, with the personality of Leon Black.
 
-## What works today (Phase 1)
+## What works today
+
+- **Chat with Leon** (Phase 2a): a chat panel on the board, backed by the
+  Claude Agent SDK. Leon has read-only tools (sessions, tasks, terminal
+  peeks, transcripts, PR states) and answers in a configurable voice —
+  Leon Black by default (`personalities/`, swappable via
+  `[personality].promptFile` in `~/.leon/config.toml`). The conversation
+  persists and resumes across daemon restarts. Mutating actions
+  (typing into sessions, spawning) come next, behind an approval flow.
+- **PR monitoring**: every open PR you authored (plus live session
+  branches) polled via `gh`, shown in the board's PR rail with checks and
+  review state.
 
 - **Discovery**: finds every `claude` process in every tmux pane, no setup.
 - **Status**: each session is `working / waiting_input / waiting_permission /

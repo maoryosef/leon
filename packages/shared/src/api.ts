@@ -25,3 +25,8 @@ export const UpdateSessionInput = z.object({
   title: z.string().nullable().optional(),
 });
 export type UpdateSessionInput = z.infer<typeof UpdateSessionInput>;
+
+export const SendChatInput = z.object({
+  text: z.string().min(1).max(8000),
+});
+export type SendChatInput = z.infer<typeof SendChatInput>;
