@@ -11,6 +11,71 @@ export interface ToolDeps {
   tasks: TaskService;
   prs: PrPoller;
   tmux: Tmux;
+  /** Set by canUseTool after an approval; consumed by the mutating tool
+   * handler to report executed/failed back onto that approval. */
+  tracker: ApprovalTracker;
+  approvals: ApprovalReporter;
+}
+
+export interface ApprovalReporter {
+  markExecuted(id: string, resultSummary: string): void;
+  markFailed(id: string, resultSummary: string): void;
+}
+
+/** Correlates an approved canUseTool call with its tool execution. */
+export class ApprovalTracker {
+  private byTool = new Map<string, string[]>();
+
+  record(toolName: string, approvalId: string): void {
+    const list = this.byTool.get(toolName) ?? [];
+    list.push(approvalId);
+    this.byTool.set(toolName, list);
+  }
+
+  consume(toolName: string): string | null {
+    return this.byTool.get(toolName)?.shift() ?? null;
+  }
+}
+
+export interface MutationMeta {
+  summary: string;
+  risk: 'low' | 'medium' | 'high';
+  ttlMs?: number;
+}
+
+/** Which tools mutate, how risky they are, and how to describe them to the
+ * user on the ApprovalCard. Returns null for read-only tools. */
+export function describeMutation(toolName: string, input: Record<string, unknown>): MutationMeta | null {
+  const name = toolName.replace(/^mcp__leon__/, '');
+  const s = (k: string) => String(input[k] ?? '');
+  switch (name) {
+    case 'create_task':
+      return { summary: `Create task “${s('title')}”`, risk: 'low' };
+    case 'link_session_to_task':
+      return {
+        summary: input.taskId
+          ? `Link session ${s('session')} to task ${s('taskId')}`
+          : `Move session ${s('session')} back to the Inbox`,
+        risk: 'low',
+      };
+    case 'nudge_session':
+      return { summary: `Nudge session ${s('session')} for a status update`, risk: 'medium' };
+    case 'send_to_session':
+      return {
+        summary: `Type into session ${s('session')}: “${s('text').slice(0, 120)}”${input.pressEnter === false ? ' (no Enter)' : ''}`,
+        risk: 'high',
+      };
+    case 'answer_permission_prompt':
+      return {
+        summary: `Answer the permission prompt in session ${s('session')} with “${s('option')}”`,
+        risk: 'high',
+        ttlMs: 60_000, // prompts move; a stale yes is worse than no yes
+      };
+    case 'kill_session':
+      return { summary: `Kill session ${s('session')} (tmux pane closes)`, risk: 'high' };
+    default:
+      return null;
+  }
 }
 
 function json(data: unknown) {
@@ -103,9 +168,150 @@ export function createLeonToolServer(deps: ToolDeps) {
     },
   );
 
-  const tools = [list_sessions, list_tasks, get_pr_status, peek_session, get_session_transcript_tail];
+  /* ---------------- mutating tools (approval-gated via canUseTool) -------- */
+
+  // Runs the action, reports the outcome onto the approval that let it through.
+  const reporting = (
+    toolName: string,
+    fn: () => Promise<{ ok: string } | { error: string }>,
+  ): Promise<{ content: { type: 'text'; text: string }[] }> => {
+    const approvalId = deps.tracker.consume(`mcp__leon__${toolName}`);
+    return fn()
+      .then((res) => {
+        if (approvalId) {
+          if ('ok' in res) deps.approvals.markExecuted(approvalId, res.ok);
+          else deps.approvals.markFailed(approvalId, res.error);
+        }
+        return json(res);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'action failed';
+        if (approvalId) deps.approvals.markFailed(approvalId, msg);
+        return json({ error: msg });
+      });
+  };
+
+  const resolveSession = (query: string) => deps.sessions.findByQuery(query);
+
+  const send_to_session = tool(
+    'send_to_session',
+    'Type text into a session’s terminal (optionally pressing Enter). Requires user approval.',
+    {
+      session: z.string().describe('Session short id, directory basename, tmux name, or title'),
+      text: z.string().min(1).max(2000),
+      pressEnter: z.boolean().default(true),
+    },
+    async (args) =>
+      reporting('send_to_session', async () => {
+        const session = resolveSession(args.session);
+        if (!session) return { error: `no live session matches "${args.session}"` };
+        await deps.tmux.sendKeys(session.tmuxPaneId, args.text, args.pressEnter);
+        return { ok: `sent to ${session.cwd.split('/').pop()} (${session.tmuxPaneId})` };
+      }),
+  );
+
+  const answer_permission_prompt = tool(
+    'answer_permission_prompt',
+    'Answer a Claude Code permission prompt in a session (pick a numbered option, or esc). Re-checks that the prompt is still on screen before sending. Requires user approval.',
+    {
+      session: z.string(),
+      option: z.string().regex(/^([1-9]|esc)$/, 'a digit 1-9 or "esc"'),
+    },
+    async (args) =>
+      reporting('answer_permission_prompt', async () => {
+        const session = resolveSession(args.session);
+        if (!session) return { error: `no live session matches "${args.session}"` };
+        // the prompt may have been answered/dismissed while approval was pending
+        const screen = await deps.tmux.capturePane(session.tmuxPaneId);
+        const tail = screen.split('\n').slice(-25).join('\n');
+        if (!/❯?\s*1\.\s/.test(tail)) {
+          return { error: `no selector prompt on screen anymore — current tail:\n${tail.slice(-600)}` };
+        }
+        if (args.option === 'esc') {
+          await deps.tmux.sendKey(session.tmuxPaneId, 'Escape');
+          return { ok: 'sent Escape (cancelled the prompt)' };
+        }
+        await deps.tmux.sendKeys(session.tmuxPaneId, args.option, false);
+        return { ok: `selected option ${args.option}` };
+      }),
+  );
+
+  const nudge_session = tool(
+    'nudge_session',
+    'Send a short status-check message to a session’s agent. Requires user approval.',
+    {
+      session: z.string(),
+      message: z
+        .string()
+        .max(300)
+        .default('Quick status check: what are you working on right now, and are you blocked on anything?'),
+    },
+    async (args) =>
+      reporting('nudge_session', async () => {
+        const session = resolveSession(args.session);
+        if (!session) return { error: `no live session matches "${args.session}"` };
+        await deps.tmux.sendKeys(session.tmuxPaneId, args.message, true);
+        return { ok: `nudged ${session.cwd.split('/').pop()}` };
+      }),
+  );
+
+  const kill_session = tool(
+    'kill_session',
+    'Kill a session’s tmux pane (the claude process dies with it). Requires user approval.',
+    { session: z.string() },
+    async (args) =>
+      reporting('kill_session', async () => {
+        const session = resolveSession(args.session);
+        if (!session) return { error: `no live session matches "${args.session}"` };
+        await deps.tmux.killPane(session.tmuxPaneId);
+        return { ok: `killed pane ${session.tmuxPaneId} (${session.cwd.split('/').pop()})` };
+      }),
+  );
+
+  const create_task = tool(
+    'create_task',
+    'Create a new task on the board. Requires user approval.',
+    { title: z.string().min(1).max(200), description: z.string().max(2000).optional() },
+    async (args) =>
+      reporting('create_task', async () => {
+        const task = deps.tasks.create({ title: args.title, description: args.description }, 'leon');
+        return { ok: `created task "${task.title}" (${task.id.slice(-8)})` };
+      }),
+  );
+
+  const link_session_to_task = tool(
+    'link_session_to_task',
+    'Assign a session to a task (or back to the Inbox with taskId null). Requires user approval.',
+    { session: z.string(), taskId: z.string().nullable() },
+    async (args) =>
+      reporting('link_session_to_task', async () => {
+        const session = resolveSession(args.session);
+        if (!session) return { error: `no live session matches "${args.session}"` };
+        if (args.taskId) {
+          const task = deps.tasks.get(args.taskId) ?? deps.tasks.list().find((t) => t.id.endsWith(args.taskId!));
+          if (!task) return { error: `no task ${args.taskId}` };
+          deps.sessions.link(session.id, task.id);
+          return { ok: `linked ${session.cwd.split('/').pop()} → "${task.title}"` };
+        }
+        deps.sessions.link(session.id, null);
+        return { ok: `moved ${session.cwd.split('/').pop()} to Inbox` };
+      }),
+  );
+
+  const readOnly = [list_sessions, list_tasks, get_pr_status, peek_session, get_session_transcript_tail];
+  const mutating = [
+    send_to_session,
+    answer_permission_prompt,
+    nudge_session,
+    kill_session,
+    create_task,
+    link_session_to_task,
+  ];
   return {
-    server: createSdkMcpServer({ name: 'leon', version: '0.1.0', tools }),
-    allowedToolNames: tools.map((t) => `mcp__leon__${t.name}`),
+    server: createSdkMcpServer({ name: 'leon', version: '0.1.0', tools: [...readOnly, ...mutating] }),
+    // ⚠ SECURITY: allowedTools entries are PRE-APPROVED by the SDK and skip
+    // canUseTool entirely. Only read-only tools may appear here; mutating
+    // tools must fall through to canUseTool, where the approval gate lives.
+    readOnlyToolNames: readOnly.map((t) => `mcp__leon__${t.name}`),
   };
 }

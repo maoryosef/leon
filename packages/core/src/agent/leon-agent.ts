@@ -2,9 +2,10 @@ import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatMessage } from '@leon/shared';
 import type { LeonConfig } from '../config.js';
 import type { EventBus } from '../events.js';
+import type { ApprovalService } from '../services/approval-service.js';
 import type { ChatService } from '../services/chat-service.js';
 import { composeSystemPrompt } from './prompt.js';
-import { createLeonToolServer, type ToolDeps } from './tools.js';
+import { createLeonToolServer, describeMutation, type ToolDeps } from './tools.js';
 
 const KV_AGENT_SESSION = 'agent_session_id';
 
@@ -24,6 +25,7 @@ export class LeonAgent {
     private config: LeonConfig,
     private bus: EventBus,
     private chat: ChatService,
+    private approvals: ApprovalService,
     private toolDeps: ToolDeps,
   ) {
     this.agentSessionId = this.chat.getKv(KV_AGENT_SESSION) ?? '';
@@ -91,7 +93,7 @@ export class LeonAgent {
   }
 
   private async runConversation(): Promise<void> {
-    const { server, allowedToolNames } = createLeonToolServer(this.toolDeps);
+    const { server, readOnlyToolNames } = createLeonToolServer(this.toolDeps);
     const stream = query({
       prompt: this.inputStream(),
       options: {
@@ -99,17 +101,38 @@ export class LeonAgent {
         model: this.config.agent.model,
         cwd: this.config.dataDir, // keep the agent out of any repo
         mcpServers: { leon: server },
-        allowedTools: allowedToolNames,
+        // mutating tools are deliberately NOT allowlisted — they must hit
+        // canUseTool below, where the human approval gate lives
+        allowedTools: readOnlyToolNames,
         settingSources: [], // never load user/project settings (hooks!) into Leon
         maxTurns: 30,
         ...(this.agentSessionId ? { resume: this.agentSessionId } : {}),
         canUseTool: async (toolName, input) => {
-          // Phase 2a: only Leon's own read-only tools exist; everything else
-          // is denied outright. The approval flow lands here later.
-          if (toolName.startsWith('mcp__leon__')) {
+          if (!toolName.startsWith('mcp__leon__')) {
+            return { behavior: 'deny', message: 'Only Leon tools are permitted.' };
+          }
+          const mutation = describeMutation(toolName, input);
+          if (!mutation) {
+            // read-only tools are auto-allowed
             return { behavior: 'allow', updatedInput: input };
           }
-          return { behavior: 'deny', message: 'Leon has read-only tools for now.' };
+          // Mutating: suspend here until the human decides.
+          const { approval, decision } = this.approvals.request({
+            toolName: toolName.replace(/^mcp__leon__/, ''),
+            toolInput: input,
+            summary: mutation.summary,
+            risk: mutation.risk,
+            ttlMs: mutation.ttlMs,
+          });
+          const result = await decision;
+          if (result.approved) {
+            this.toolDeps.tracker.record(toolName, approval.id);
+            return { behavior: 'allow', updatedInput: input };
+          }
+          return {
+            behavior: 'deny',
+            message: `The user did not approve this action: ${result.reason}`,
+          };
         },
       },
     });

@@ -15,7 +15,10 @@ export interface BoardState {
   tasks: Task[];
   sessions: Session[];
   pullRequests: PullRequest[];
+  /** Pending approvals only — resolved ones are removed as they resolve. */
   approvals: Approval[];
+  /** Most recent approval that resolved with status 'failed' (for the chat feedback line). */
+  lastApprovalFailure: Approval | null;
   chatMessages: ChatMessage[];
   /** true once GET /api/chat history has been applied */
   chatLoaded: boolean;
@@ -30,6 +33,7 @@ let state: BoardState = {
   sessions: [],
   pullRequests: [],
   approvals: [],
+  lastApprovalFailure: null,
   chatMessages: [],
   chatLoaded: false,
   chatStatus: { state: 'idle', detail: null },
@@ -93,8 +97,10 @@ export function applyEvent(event: WsEvent): void {
       setState({ ...state, pullRequests: upsert(state.pullRequests, event.pullRequest) });
       break;
     case 'approval.requested':
-    case 'approval.resolved':
       setState({ ...state, approvals: upsert(state.approvals, event.approval) });
+      break;
+    case 'approval.resolved':
+      applyApproval(event.approval);
       break;
     case 'chat.message':
       setState({ ...state, chatMessages: capChat(upsert(state.chatMessages, event.message)) });
@@ -141,6 +147,32 @@ export function removeTask(taskId: string): void {
 
 export function applySession(session: Session): void {
   setState({ ...state, sessions: upsert(state.sessions, session) });
+}
+
+/**
+ * Apply an approval in whatever state it arrived (WS resolve or REST decide
+ * response). Pending → upsert; anything else leaves the pending list. A
+ * 'failed' resolution (may fire after 'approved'/'executed') is remembered so
+ * the chat panel can surface it. Idempotent — WS and REST may both deliver it.
+ */
+export function applyApproval(approval: Approval): void {
+  const approvals =
+    approval.status === 'pending'
+      ? upsert(state.approvals, approval)
+      : state.approvals.filter((existing) => existing.id !== approval.id);
+  setState({
+    ...state,
+    approvals,
+    lastApprovalFailure: approval.status === 'failed' ? approval : state.lastApprovalFailure,
+  });
+}
+
+/** Drop a card locally (e.g. decide returned 404/409 — WS will reconcile). */
+export function removeApproval(approvalId: string): void {
+  setState({
+    ...state,
+    approvals: state.approvals.filter((approval) => approval.id !== approvalId),
+  });
 }
 
 /* ------------------------------------------------------------------ */

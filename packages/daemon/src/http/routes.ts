@@ -3,6 +3,7 @@ import type { LeonCore } from '@leon/core';
 import { approvalFromRow } from '@leon/core';
 import {
   CreateTaskInput,
+  DecideApprovalInput,
   LinkSessionInput,
   SendChatInput,
   UpdateSessionInput,
@@ -65,6 +66,17 @@ export function registerRoutes(app: FastifyInstance, core: LeonCore): void {
     if (!input.success) return reply.code(400).send({ error: input.error.message });
     core.agent.send(input.data.text);
     return reply.code(202).send({ accepted: true });
+  });
+
+  app.post('/api/approvals/:id/decide', async (req, reply) => {
+    const input = DecideApprovalInput.safeParse(req.body);
+    if (!input.success) return reply.code(400).send({ error: input.error.message });
+    const id = (req.params as { id: string }).id;
+    const existing = core.approvals.get(id);
+    if (!existing) return reply.code(404).send({ error: 'approval not found' });
+    const updated = core.approvals.decide(id, input.data.approve, input.data.reason, 'web');
+    if (!updated) return reply.code(409).send({ error: `already ${existing.status}` });
+    return updated;
   });
 
   app.get('/api/sessions/:id/capture', async (req, reply) => {

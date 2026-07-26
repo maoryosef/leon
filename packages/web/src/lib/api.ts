@@ -2,6 +2,7 @@ import type {
   Approval,
   ChatMessage,
   CreateTaskInput,
+  DecideApprovalInput,
   PullRequest,
   SendChatInput,
   Session,
@@ -46,6 +47,17 @@ export function useUnauthorized(): boolean {
 /* REST                                                                */
 /* ------------------------------------------------------------------ */
 
+/** Non-2xx response — carries the HTTP status so callers can branch (404/409…). */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Accept', 'application/json');
@@ -59,7 +71,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error('unauthorized');
   }
   if (!res.ok) {
-    throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`);
+    throw new ApiError(`${init?.method ?? 'GET'} ${path} → ${res.status}`, res.status);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -105,6 +117,14 @@ export function fetchCapture(id: string): Promise<{ text: string }> {
 /** Full chat history, oldest first (daemon caps it at 200). */
 export function fetchChatHistory(): Promise<ChatMessage[]> {
   return request<ChatMessage[]>('/api/chat');
+}
+
+/** Decide a pending approval. 404 = unknown, 409 = already decided/expired. */
+export function decideApproval(id: string, input: DecideApprovalInput): Promise<Approval> {
+  return request<Approval>(`/api/approvals/${encodeURIComponent(id)}/decide`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 /** 202 on accept — the persisted message (and Leon's reply) arrive via WS. */

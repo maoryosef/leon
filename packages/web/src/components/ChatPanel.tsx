@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { fetchChatHistory, sendChat } from '../lib/api';
 import { relativeTime, useNow } from '../lib/time';
 import { seedChatHistory, useBoardState } from '../lib/ws-store';
+import { ApprovalCard } from './ApprovalCard';
 import { Markdown } from './Markdown';
 
 const OPEN_KEY = 'leon.chat.open';
@@ -88,10 +89,20 @@ function Message({ message, now }: { message: ChatMessage; now: number }) {
 const MAX_INPUT_HEIGHT = 110; // ≈ 5 lines
 
 export function ChatPanel() {
-  const { chatMessages, chatLoaded, chatStatus } = useBoardState();
+  const { chatMessages, chatLoaded, chatStatus, approvals, lastApprovalFailure } =
+    useBoardState();
   const [open, setOpen] = useState(loadOpen);
   const [text, setText] = useState('');
   const now = useNow();
+
+  const pendingApprovals = approvals.filter((approval) => approval.status === 'pending');
+
+  // "✗ tool failed: …" line for the latest failed approval; dismissible, ephemeral.
+  const [dismissedFailureId, setDismissedFailureId] = useState<string | null>(null);
+  const approvalFailure =
+    lastApprovalFailure && lastApprovalFailure.id !== dismissedFailureId
+      ? lastApprovalFailure
+      : null;
 
   // Seed history over REST; WS chat.message events keep it live afterwards.
   const { data: history } = useQuery({
@@ -180,9 +191,23 @@ export function ChatPanel() {
       <button
         type="button"
         onClick={() => toggle(true)}
-        title="Open Leon chat"
-        className="flex w-7 shrink-0 items-center justify-center border-l border-line bg-panel hover:bg-raise"
+        title={
+          pendingApprovals.length > 0
+            ? `Open Leon chat — ${pendingApprovals.length} pending approval${
+                pendingApprovals.length === 1 ? '' : 's'
+              }`
+            : 'Open Leon chat'
+        }
+        className="flex w-7 shrink-0 flex-col items-center justify-center gap-2.5 border-l border-line bg-panel hover:bg-raise"
       >
+        {pendingApprovals.length > 0 && (
+          <span className="flex flex-col items-center gap-1">
+            <span className="attn-pulse size-2 rounded-full bg-accent" />
+            <span className="font-mono text-[10px] font-bold text-accent select-none">
+              {pendingApprovals.length}
+            </span>
+          </span>
+        )}
         <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-accent select-none [writing-mode:vertical-rl]">
           LEON
         </span>
@@ -238,6 +263,22 @@ export function ChatPanel() {
                 ⚠ {chatStatus.detail ?? 'agent error'}
               </p>
             )}
+
+            {approvalFailure && (
+              <div className="flex items-baseline gap-2">
+                <p className="min-w-0 whitespace-pre-wrap font-mono text-[11px] text-danger">
+                  ✗ {approvalFailure.toolName} failed:{' '}
+                  {approvalFailure.resultSummary ?? 'no details'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setDismissedFailureId(approvalFailure.id)}
+                  className="shrink-0 font-mono text-[10px] text-faint hover:text-dim"
+                >
+                  dismiss
+                </button>
+              </div>
+            )}
           </div>
 
           {hasNew && (
@@ -250,6 +291,14 @@ export function ChatPanel() {
             </button>
           )}
         </div>
+
+        {pendingApprovals.length > 0 && (
+          <div className="flex shrink-0 flex-col gap-2 border-t border-line p-2.5">
+            {pendingApprovals.map((approval) => (
+              <ApprovalCard key={approval.id} approval={approval} />
+            ))}
+          </div>
+        )}
 
         <div className="shrink-0 border-t border-line p-2.5">
           {sendMutation.isError && (

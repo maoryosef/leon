@@ -1,8 +1,10 @@
 import { LeonAgent } from './agent/leon-agent.js';
+import { ApprovalTracker } from './agent/tools.js';
 import { loadConfig, type LeonConfig } from './config.js';
 import { openDb, type LeonDb } from './db/index.js';
 import { EventBus } from './events.js';
 import { Monitor } from './monitor/monitor.js';
+import { ApprovalService } from './services/approval-service.js';
 import { ChatService } from './services/chat-service.js';
 import { PrPoller } from './services/pr-service.js';
 import { SessionService } from './services/session-service.js';
@@ -19,6 +21,7 @@ export interface LeonCore {
   monitor: Monitor;
   prs: PrPoller;
   chat: ChatService;
+  approvals: ApprovalService;
   agent: LeonAgent;
   start(): Promise<void>;
   stop(): void;
@@ -36,7 +39,15 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
   });
   const prs = new PrPoller(db, bus, sessions, config.discovery.prPollMs);
   const chat = new ChatService(db, bus);
-  const agent = new LeonAgent(config, bus, chat, { sessions, tasks, prs, tmux });
+  const approvals = new ApprovalService(db, bus);
+  const agent = new LeonAgent(config, bus, chat, approvals, {
+    sessions,
+    tasks,
+    prs,
+    tmux,
+    tracker: new ApprovalTracker(),
+    approvals,
+  });
 
   return {
     config,
@@ -48,14 +59,17 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     monitor,
     prs,
     chat,
+    approvals,
     agent,
     async start() {
       await monitor.start();
       prs.start();
+      approvals.start();
       agent.start();
     },
     stop() {
       agent.stop();
+      approvals.stop();
       monitor.stop();
       prs.stop();
       db.close();
@@ -74,7 +88,9 @@ export { interpretTranscriptLine, TranscriptTailer } from './monitor/transcript-
 export { encodeProjectDir, findTranscripts, projectsRoot } from './monitor/transcripts.js';
 export { LeonAgent } from './agent/leon-agent.js';
 export { composeSystemPrompt } from './agent/prompt.js';
+export { ApprovalService, type Decision } from './services/approval-service.js';
 export { ChatService } from './services/chat-service.js';
+export { ApprovalTracker, describeMutation } from './agent/tools.js';
 export { SessionService } from './services/session-service.js';
 export { TaskService } from './services/task-service.js';
 export { PrPoller } from './services/pr-service.js';

@@ -53,6 +53,11 @@ export class Tmux {
     if (enter) await this.run(['send-keys', '-t', paneId, 'Enter']);
   }
 
+  /** Send a named key (Enter, Escape, Up, …) — tmux key-name lookup applies. */
+  async sendKey(paneId: string, key: string): Promise<void> {
+    await this.run(['send-keys', '-t', paneId, key]);
+  }
+
   async newSession(name: string, cwd: string): Promise<string> {
     // -P -F prints the new pane id so the caller can register it immediately
     const out = await this.run([
