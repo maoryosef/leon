@@ -6,9 +6,12 @@ import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
 import { TaskRail } from './components/TaskRail';
 
-// xterm is heavy — split it out so the console loads lean.
+// xterm is heavy — split both terminal surfaces out so the console loads lean.
 const TerminalModal = lazy(() =>
   import('./components/TerminalModal').then((module) => ({ default: module.TerminalModal })),
+);
+const SessionsView = lazy(() =>
+  import('./components/SessionsView').then((module) => ({ default: module.SessionsView })),
 );
 import { fetchState, useUnauthorized } from './lib/api';
 import { seedFromRest, setOpenSession, startEvents, useBoardState } from './lib/ws-store';
@@ -67,56 +70,71 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <Header connection={board.connection} sessions={board.sessions} approvals={board.approvals} />
+      <Header
+        connection={board.connection}
+        sessions={board.sessions}
+        approvals={board.approvals}
+        view={board.view}
+      />
 
-      {/* relative so the rail/dock drawers can overlay on narrow screens */}
-      <div className="relative flex min-h-0 flex-1">
-        {/* narrow-screen edge toggle — task rail drawer */}
-        <button
-          type="button"
-          onClick={() => setRailOpen((value) => !value)}
-          title={railOpen ? 'Close tasks' : 'Open tasks'}
-          className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2.5 border-r border-line bg-panel hover:bg-raise max-[1100px]:flex"
-        >
-          <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-dim select-none [writing-mode:vertical-rl]">
-            TASKS
-          </span>
-        </button>
-
-        <TaskRail
-          tasks={board.tasks}
-          sessions={board.sessions}
-          pullRequests={board.pullRequests}
-          loaded={board.loaded}
-          loadFailed={isError && board.connection !== 'connected'}
-          mobileOpen={railOpen}
-        />
-
-        <ChatPanel />
-
-        <AttentionDock
-          sessions={board.sessions}
-          pullRequests={board.pullRequests}
-          mobileOpen={dockOpen}
-        />
-
-        {/* narrow-screen edge toggle — attention dock drawer */}
-        <button
-          type="button"
-          onClick={() => setDockOpen((value) => !value)}
-          title={dockOpen ? 'Close attention dock' : 'Open attention dock'}
-          className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2.5 border-l border-line bg-panel hover:bg-raise max-[1100px]:flex"
-        >
-          {needsYou > 0 && (
-            <span className="attn-pulse border border-accent/60 bg-accent/10 px-1 py-px font-mono text-[10px] font-bold leading-none text-accent select-none">
-              {needsYou}
+      {board.view === 'sessions' ? (
+        <Suspense fallback={null}>
+          <SessionsView
+            sessions={board.sessions}
+            tasks={board.tasks}
+            modalOpen={openSession != null}
+          />
+        </Suspense>
+      ) : (
+        /* relative so the rail/dock drawers can overlay on narrow screens */
+        <div className="relative flex min-h-0 flex-1">
+          {/* narrow-screen edge toggle — task rail drawer */}
+          <button
+            type="button"
+            onClick={() => setRailOpen((value) => !value)}
+            title={railOpen ? 'Close tasks' : 'Open tasks'}
+            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2.5 border-r border-line bg-panel hover:bg-raise max-[1100px]:flex"
+          >
+            <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-dim select-none [writing-mode:vertical-rl]">
+              TASKS
             </span>
-          )}
-          <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-dim select-none [writing-mode:vertical-rl]">
-            NEEDS YOU
-          </span>
-        </button>
-      </div>
+          </button>
+
+          <TaskRail
+            tasks={board.tasks}
+            sessions={board.sessions}
+            pullRequests={board.pullRequests}
+            loaded={board.loaded}
+            loadFailed={isError && board.connection !== 'connected'}
+            mobileOpen={railOpen}
+          />
+
+          <ChatPanel />
+
+          <AttentionDock
+            sessions={board.sessions}
+            pullRequests={board.pullRequests}
+            mobileOpen={dockOpen}
+          />
+
+          {/* narrow-screen edge toggle — attention dock drawer */}
+          <button
+            type="button"
+            onClick={() => setDockOpen((value) => !value)}
+            title={dockOpen ? 'Close attention dock' : 'Open attention dock'}
+            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2.5 border-l border-line bg-panel hover:bg-raise max-[1100px]:flex"
+          >
+            {needsYou > 0 && (
+              <span className="attn-pulse border border-accent/60 bg-accent/10 px-1 py-px font-mono text-[10px] font-bold leading-none text-accent select-none">
+                {needsYou}
+              </span>
+            )}
+            <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-dim select-none [writing-mode:vertical-rl]">
+              NEEDS YOU
+            </span>
+          </button>
+        </div>
+      )}
 
       {openSession && (
         <Suspense fallback={null}>

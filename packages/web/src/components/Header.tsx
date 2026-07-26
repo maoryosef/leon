@@ -1,6 +1,7 @@
 import type { Approval, Session } from '@leon/shared';
 import { useState } from 'react';
-import type { ConnectionStatus } from '../lib/ws-store';
+import type { ConnectionStatus, View } from '../lib/ws-store';
+import { setView } from '../lib/ws-store';
 
 /** The man himself — packages/web/public/leon.png (swap the file to change it). */
 function LeonAvatar() {
@@ -28,14 +29,21 @@ function connectionMeta(connection: ConnectionStatus): { className: string; labe
   }
 }
 
+const VIEWS: { view: View; label: string }[] = [
+  { view: 'board', label: 'BOARD' },
+  { view: 'sessions', label: 'SESSIONS' },
+];
+
 export function Header({
   connection,
   sessions,
   approvals,
+  view,
 }: {
   connection: ConnectionStatus;
   sessions: Session[];
   approvals: Approval[];
+  view: View;
 }) {
   const live = sessions.filter((session) => !session.archivedAt);
   const working = live.filter((session) => session.status === 'working').length;
@@ -66,6 +74,23 @@ export function Header({
           className={`size-2 rounded-full ${conn.className}`}
         />
       </div>
+
+      <nav className="flex items-stretch gap-1 self-stretch" aria-label="View">
+        {VIEWS.map((tab) => (
+          <button
+            key={tab.view}
+            type="button"
+            onClick={() => setView(tab.view)}
+            className={`border-b-2 px-2 font-mono text-[10.5px] tracking-[0.14em] select-none ${
+              view === tab.view
+                ? 'border-accent text-txt'
+                : 'border-transparent text-faint hover:text-dim'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
 
       <span className="font-mono text-[11px] text-dim">{counts.join(' · ')}</span>
 

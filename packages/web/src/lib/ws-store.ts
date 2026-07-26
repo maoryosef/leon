@@ -6,6 +6,13 @@ import { wsUrl } from './token';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
 
+export type View = 'board' | 'sessions';
+
+/** URL hash ↔ view: '#sessions' means the SESSIONS view, anything else the board. */
+function readViewFromHash(): View {
+  return window.location.hash === '#sessions' ? 'sessions' : 'board';
+}
+
 export interface ChatStatus {
   state: 'thinking' | 'idle' | 'error';
   detail: string | null;
@@ -28,6 +35,8 @@ export interface BoardState {
   /** true once a snapshot (WS or REST seed) has been applied */
   loaded: boolean;
   connection: ConnectionStatus;
+  /** which top-level screen is showing — synced to the URL hash (#sessions) */
+  view: View;
   /** session whose TerminalModal is open — shared so chips/dock/rail can all open it */
   openSessionId: string | null;
   /** pre-filled chat input requested by other panels; ChatPanel consumes + clears */
@@ -46,6 +55,7 @@ let state: BoardState = {
   unreadCount: 0,
   loaded: false,
   connection: 'connecting',
+  view: readViewFromHash(),
   openSessionId: null,
   chatDraft: null,
 };
@@ -72,7 +82,19 @@ export function useBoardState(): BoardState {
 /* UI slice                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Open (or close, with null) the shared terminal modal. */
+/** Switch the top-level view and keep the URL hash in sync (so reload/back work). */
+export function setView(view: View): void {
+  if (state.view !== view) setState({ ...state, view });
+  const targetHash = view === 'sessions' ? '#sessions' : '';
+  if (window.location.hash !== targetHash) {
+    if (view === 'sessions') {
+      window.location.hash = 'sessions';
+    } else {
+      // pushState instead of `location.hash = ''` so we don't leave a dangling '#'
+      window.history.pushState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+}
 export function setOpenSession(sessionId: string | null): void {
   if (state.openSessionId === sessionId) return;
   setState({ ...state, openSessionId: sessionId });
@@ -281,6 +303,11 @@ let attempt = 0;
 export function startEvents(): void {
   if (started) return;
   started = true;
+  // back/forward between #sessions and the board re-applies the hash
+  window.addEventListener('hashchange', () => {
+    const view = readViewFromHash();
+    if (state.view !== view) setState({ ...state, view });
+  });
   connect();
 }
 

@@ -33,6 +33,35 @@ export interface TermHandle {
 export class PtyManager {
   private liveCount = 0;
   private counter = 0;
+  private sweeper: NodeJS.Timeout;
+
+  constructor() {
+    // destroy-unattached is set asynchronously after the grouped session is
+    // created; a client that detaches in that window leaves a zombie view
+    // session behind. Reap unattached leon-view-* sessions periodically.
+    this.sweeper = setInterval(() => void this.sweepZombies(), 60_000);
+    this.sweeper.unref?.();
+  }
+
+  private async sweepZombies(): Promise<void> {
+    try {
+      const { stdout } = await execFileP('tmux', [
+        'list-sessions',
+        '-F',
+        '#{session_name}\t#{session_attached}\t#{session_created}',
+      ]);
+      const now = Math.floor(Date.now() / 1000);
+      for (const line of stdout.split('\n')) {
+        const [name, attached, created] = line.split('\t');
+        if (!name?.startsWith(VIEW_SESSION_PREFIX)) continue;
+        if (attached !== '0') continue;
+        if (now - Number(created) < 30) continue; // grace for just-created
+        await execFileP('tmux', ['kill-session', '-t', `=${name}`]).catch(() => {});
+      }
+    } catch {
+      // no tmux server — nothing to sweep
+    }
+  }
 
   async open(session: Session, cols: number, rows: number): Promise<TermHandle> {
     if (this.liveCount >= MAX_PTYS) {
