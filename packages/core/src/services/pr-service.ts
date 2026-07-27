@@ -291,6 +291,23 @@ export class PrPoller {
     }
   }
 
+  /** PRs advertise their ticket ("feat: ... (ENG-3355)", branch eng-3355-x):
+   * match against board tasks' jiraKeys for zero-click attribution. */
+  private taskIdFromJiraKey(title: string, branch: string): string | null {
+    const keys = `${title} ${branch}`.toUpperCase().match(/[A-Z][A-Z0-9]{1,9}-\d{1,6}/g);
+    if (!keys) return null;
+    const rows = this.db
+      .prepare(
+        "SELECT id, jira_key FROM tasks WHERE jira_key IS NOT NULL AND status IN ('active','paused')",
+      )
+      .all() as { id: string; jira_key: string }[];
+    for (const key of keys) {
+      const hit = rows.find((row) => row.jira_key.toUpperCase() === key);
+      if (hit) return hit.id;
+    }
+    return null;
+  }
+
   private upsert(nameWithOwner: string, pr: GhPrView, attr: BranchInfo | null): void {
     const repoId = this.ensureRepo(nameWithOwner);
     const state: PullRequest['state'] =
@@ -305,8 +322,10 @@ export class PrPoller {
             ? 'review_required'
             : null;
 
+    const taskId = attr?.taskId ?? this.taskIdFromJiraKey(pr.title, pr.headRefName);
+
     const key = `${nameWithOwner}#${pr.number}`;
-    const fingerprint = JSON.stringify([state, checks, review, pr.title, attr?.taskId, attr?.sessionId]);
+    const fingerprint = JSON.stringify([state, checks, review, pr.title, taskId, attr?.sessionId]);
     const unchanged = this.fingerprints.get(key) === fingerprint;
     this.fingerprints.set(key, fingerprint);
 
@@ -328,7 +347,7 @@ export class PrPoller {
            branch = ?, title = ?, url = ?, state = ?, checks = ?, review_decision = ?, last_synced_at = ?
            WHERE id = ?`,
         )
-        .run(attr?.taskId ?? null, attr?.sessionId ?? null, pr.headRefName, pr.title, pr.url, state, checks, review, now, existing.id);
+        .run(taskId, attr?.sessionId ?? null, pr.headRefName, pr.title, pr.url, state, checks, review, now, existing.id);
     } else {
       this.db
         .prepare(
@@ -336,7 +355,7 @@ export class PrPoller {
            (id, repo_id, task_id, session_id, number, branch, title, url, state, checks, review_decision, last_synced_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(ulid(), repoId, attr?.taskId ?? null, attr?.sessionId ?? null, pr.number, pr.headRefName, pr.title, pr.url, state, checks, review, now);
+        .run(ulid(), repoId, taskId, attr?.sessionId ?? null, pr.number, pr.headRefName, pr.title, pr.url, state, checks, review, now);
     }
     const row = this.db
       .prepare('SELECT * FROM pull_requests WHERE repo_id = ? AND number = ?')
