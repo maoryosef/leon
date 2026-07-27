@@ -315,12 +315,10 @@ export function ChatPanel() {
               return (
                 <div key={message.id} className="contents">
                   {newDay && (
-                    <div className="my-1 flex items-center gap-2">
-                      <span className="h-px flex-1 bg-line" />
-                      <span className="font-mono text-[9.5px] tracking-wide text-faint">
+                    <div className="my-1.5 flex justify-center">
+                      <span className="border border-line bg-raise px-2.5 py-0.5 font-mono text-[10.5px] tracking-wide text-dim">
                         {dayLabel(message.createdAt)}
                       </span>
-                      <span className="h-px flex-1 bg-line" />
                     </div>
                   )}
                   <Message message={message} now={now} fresh={freshIds.has(message.id)} />

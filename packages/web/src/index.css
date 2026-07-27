@@ -2,19 +2,21 @@
 @import '@xterm/xterm/css/xterm.css';
 
 @theme {
-  /* palette — near-black operations console, one amber accent */
-  --color-bg: #0b0c0e;
-  --color-panel: #101214;
-  --color-raise: #17191d;
-  --color-line: #26292d;
-  --color-line-strong: #3a3e44;
-  --color-txt: #d8dade;
-  --color-dim: #8b9096;
-  --color-faint: #5b6066;
-  --color-accent: #e2a33e; /* needs-attention + wordmark ONLY */
-  --color-ok: #4fb860;
-  --color-info: #5f9bd6;
-  --color-danger: #d9564d;
+  /* palette — dark operations console, one amber accent.
+     Lifted a step brighter (2026-07-27) for readability: backgrounds up a
+     touch, text/dim/faint up more, lines more present. */
+  --color-bg: #121418;
+  --color-panel: #17191e;
+  --color-raise: #1f2228;
+  --color-line: #33373e;
+  --color-line-strong: #4a4f58;
+  --color-txt: #eceef2;
+  --color-dim: #aab0b9;
+  --color-faint: #7d838d;
+  --color-accent: #e8ac4a; /* needs-attention + wordmark ONLY */
+  --color-ok: #5cc46e;
+  --color-info: #6fa8e0;
+  --color-danger: #e2645b;
 
   --font-mono:
     ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
@@ -36,6 +38,11 @@
     font-size: 13px;
     line-height: 1.45;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* global size lift: every px-sized class scales up ~12% */
+  #root {
+    zoom: 1.12;
   }
 
   ::selection {
