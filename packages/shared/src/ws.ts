@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Approval, ChatMessage, PullRequest, Session, Task } from './domain.js';
+import { Approval, ChatMessage, JiraIssue, PullRequest, Session, Task } from './domain.js';
 
 /**
  * Events pushed by the daemon over /ws/events. Clients receive a full
@@ -12,7 +12,9 @@ export const WsEvent = z.discriminatedUnion('type', [
     sessions: z.array(Session),
     pullRequests: z.array(PullRequest),
     approvals: z.array(Approval),
+    jiraIssues: z.array(JiraIssue).optional(),
   }),
+  z.object({ type: z.literal('jira.synced'), issues: z.array(JiraIssue) }),
   z.object({ type: z.literal('task.upserted'), task: Task }),
   z.object({ type: z.literal('task.deleted'), taskId: z.string() }),
   z.object({ type: z.literal('session.upserted'), session: Session }),

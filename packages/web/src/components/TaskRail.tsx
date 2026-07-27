@@ -1,9 +1,15 @@
 import type { PullRequest, Session, SessionStatus, Task, TaskStatus } from '@leon/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteTask, linkSession, updateTask } from '../lib/api';
+import { deleteTask, linkSession, refreshJira, updateTask } from '../lib/api';
 import { sessionTitle } from '../lib/format';
-import { applySession, applyTask, removeTask, setOpenSession } from '../lib/ws-store';
+import {
+  applySession,
+  applyTask,
+  removeTask,
+  setOpenSession,
+  useBoardState,
+} from '../lib/ws-store';
 import { NewTaskForm } from './NewTaskForm';
 import { StatusBadge } from './StatusBadge';
 
@@ -522,6 +528,8 @@ export function TaskRail({
         )}
       </div>
 
+      <JiraSection />
+
       <div className="shrink-0 border-t border-line">
         <button
           type="button"
@@ -557,5 +565,90 @@ export function TaskRail({
 
       {newTaskOpen && <NewTaskForm onClose={() => setNewTaskOpen(false)} />}
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* JIRA — the user's assigned issues, synced into a local cache by     */
+/* Leon's agent (it holds the Atlassian auth). Read-only rail section.  */
+/* ------------------------------------------------------------------ */
+
+function jiraDot(statusCategory: string | null | undefined): string {
+  switch ((statusCategory ?? '').toLowerCase()) {
+    case 'in progress':
+      return 'bg-ok';
+    case 'to do':
+      return 'bg-info';
+    default:
+      return 'bg-faint';
+  }
+}
+
+function JiraSection() {
+  const { jiraIssues } = useBoardState();
+  const [open, setOpen] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    refreshJira()
+      .catch(() => undefined)
+      // the agent takes a few seconds; jira.synced over WS updates the list
+      .finally(() => window.setTimeout(() => setRefreshing(false), 8000));
+  };
+
+  return (
+    <div className="shrink-0 border-t border-line">
+      <div className="flex w-full items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex flex-1 items-center gap-2 text-left hover:text-dim"
+        >
+          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint select-none">
+            Jira · {jiraIssues.length}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-faint">{open ? '▾' : '▸'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={refreshing}
+          title="Ask Leon to re-sync from Jira"
+          className={`border border-line-strong bg-raise px-1.5 py-px font-mono text-[10.5px] text-dim hover:border-dim hover:text-txt disabled:opacity-40 ${
+            refreshing ? 'throb' : ''
+          }`}
+        >
+          ↻
+        </button>
+      </div>
+      {open && (
+        <div className="flex max-h-[38vh] flex-col overflow-y-auto px-2 pb-2">
+          {jiraIssues.length === 0 ? (
+            <p className="py-2 text-center font-mono text-[10.5px] text-faint">
+              {refreshing ? 'Leon is syncing…' : 'nothing synced yet — hit ↻'}
+            </p>
+          ) : (
+            jiraIssues.map((issue) => (
+              <a
+                key={issue.key}
+                href={issue.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`${issue.summary}\n${issue.status}${issue.priority ? ` · ${issue.priority}` : ''}`}
+                className="group flex items-center gap-2 border-b border-line/60 px-1.5 py-1.5 last:border-b-0 hover:bg-raise"
+              >
+                <span className={`size-1.5 shrink-0 rounded-full ${jiraDot(issue.statusCategory)}`} />
+                <span className="shrink-0 font-mono text-[10.5px] text-dim group-hover:text-txt">
+                  {issue.key}
+                </span>
+                <span className="truncate text-[11.5px] text-dim">{issue.summary}</span>
+              </a>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }

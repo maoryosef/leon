@@ -8,6 +8,7 @@ import type {
   Session,
   Task,
   UpdateTaskInput,
+  JiraIssue,
 } from '@leon/shared';
 import { useSyncExternalStore } from 'react';
 import { getToken } from './token';
@@ -17,6 +18,7 @@ export interface StateResponse {
   sessions: Session[];
   pullRequests: PullRequest[];
   approvals: Approval[];
+  jiraIssues?: JiraIssue[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -79,6 +81,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchState(): Promise<StateResponse> {
   return request<StateResponse>('/api/state');
+}
+
+export function refreshJira(): Promise<{ accepted: boolean }> {
+  return request<{ accepted: boolean }>('/api/jira/refresh', { method: 'POST' });
 }
 
 export function createTask(input: CreateTaskInput): Promise<Task> {

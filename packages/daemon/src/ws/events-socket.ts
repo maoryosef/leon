@@ -14,6 +14,7 @@ export function registerEventsSocket(app: FastifyInstance, core: LeonCore): void
       approvals: (
         core.db.prepare("SELECT * FROM approvals WHERE status = 'pending'").all() as never[]
       ).map(approvalFromRow),
+      jiraIssues: core.jira.list(),
     };
     socket.send(JSON.stringify(snapshot));
 

@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { readTranscriptTail } from '../monitor/transcripts.js';
+import type { JiraService } from '../services/jira-service.js';
 import type { PrPoller } from '../services/pr-service.js';
 import type { SessionService } from '../services/session-service.js';
 import type { TaskService } from '../services/task-service.js';
@@ -10,6 +11,7 @@ export interface ToolDeps {
   sessions: SessionService;
   tasks: TaskService;
   prs: PrPoller;
+  jira: JiraService;
   tmux: Tmux;
   /** Set by canUseTool after an approval; consumed by the mutating tool
    * handler to report executed/failed back onto that approval. */
@@ -328,7 +330,39 @@ export function createLeonToolServer(deps: ToolDeps) {
       }),
   );
 
-  const readOnly = [list_sessions, list_tasks, get_pr_status, peek_session, get_session_transcript_tail];
+  const store_jira_issues = tool(
+    'store_jira_issues',
+    "Replace Leon's local cache of the user's assigned Jira issues (shown in the board's JIRA rail). Call after fetching fresh data from the Atlassian tools.",
+    {
+      issues: z
+        .array(
+          z.object({
+            key: z.string().max(30),
+            summary: z.string().max(300),
+            status: z.string().max(60),
+            statusCategory: z.string().max(30).optional(),
+            priority: z.string().max(30).optional(),
+            url: z.string().max(300),
+          }),
+        )
+        .max(100),
+    },
+    async (args) => {
+      const stored = deps.jira.replaceAll(args.issues);
+      return json({ ok: `cached ${stored.length} jira issues` });
+    },
+  );
+
+  // store_jira_issues counts as read-only: it only refreshes Leon's own
+  // local cache from data the read-only Atlassian tools returned.
+  const readOnly = [
+    list_sessions,
+    list_tasks,
+    get_pr_status,
+    peek_session,
+    get_session_transcript_tail,
+    store_jira_issues,
+  ];
   const mutating = [
     send_to_session,
     answer_permission_prompt,

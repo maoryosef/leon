@@ -1,5 +1,5 @@
 import { WsEvent } from '@leon/shared';
-import type { Approval, ChatMessage, PullRequest, Session, Task } from '@leon/shared';
+import type { Approval, ChatMessage, JiraIssue, PullRequest, Session, Task } from '@leon/shared';
 import { useSyncExternalStore } from 'react';
 import type { StateResponse } from './api';
 import { wsUrl } from './token';
@@ -22,6 +22,7 @@ export interface BoardState {
   tasks: Task[];
   sessions: Session[];
   pullRequests: PullRequest[];
+  jiraIssues: JiraIssue[];
   /** Pending approvals only — resolved ones are removed as they resolve. */
   approvals: Approval[];
   /** Most recent approval that resolved with status 'failed' (for the chat feedback line). */
@@ -47,6 +48,7 @@ let state: BoardState = {
   tasks: [],
   sessions: [],
   pullRequests: [],
+  jiraIssues: [],
   approvals: [],
   lastApprovalFailure: null,
   chatMessages: [],
@@ -189,6 +191,7 @@ export function applyEvent(event: WsEvent): void {
         sessions: event.sessions,
         pullRequests: event.pullRequests,
         approvals: event.approvals,
+        jiraIssues: event.jiraIssues ?? state.jiraIssues,
         loaded: true,
       });
       break;
@@ -204,6 +207,9 @@ export function applyEvent(event: WsEvent): void {
       break;
     case 'pr.upserted':
       setState({ ...state, pullRequests: upsert(state.pullRequests, event.pullRequest) });
+      break;
+    case 'jira.synced':
+      setState({ ...state, jiraIssues: event.issues });
       break;
     case 'pr.deleted':
       setState({

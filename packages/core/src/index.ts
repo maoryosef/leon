@@ -6,6 +6,7 @@ import { EventBus } from './events.js';
 import { Monitor } from './monitor/monitor.js';
 import { ApprovalService } from './services/approval-service.js';
 import { ChatService } from './services/chat-service.js';
+import { JiraService } from './services/jira-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { PrPoller } from './services/pr-service.js';
 import { SessionService } from './services/session-service.js';
@@ -23,6 +24,7 @@ export interface LeonCore {
   prs: PrPoller;
   chat: ChatService;
   approvals: ApprovalService;
+  jira: JiraService;
   agent: LeonAgent;
   notifications: NotificationService;
   start(): Promise<void>;
@@ -42,10 +44,12 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
   const prs = new PrPoller(db, bus, sessions, config.discovery.prPollMs);
   const chat = new ChatService(db, bus);
   const approvals = new ApprovalService(db, bus);
+  const jira = new JiraService(db, bus);
   const agent = new LeonAgent(config, bus, chat, approvals, {
     sessions,
     tasks,
     prs,
+    jira,
     tmux,
     tracker: new ApprovalTracker(),
     approvals,
@@ -65,6 +69,7 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     prs,
     chat,
     approvals,
+    jira,
     agent,
     notifications,
     async start() {

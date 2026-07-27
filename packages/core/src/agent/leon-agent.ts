@@ -41,12 +41,22 @@ export class LeonAgent {
     if (this.running) return;
     this.running = true;
     void this.runLoop();
+    // keep the board's Jira rail fresh: sync shortly after boot, then hourly
+    if (loadUserMcpServer('atlassian')) {
+      const boot = setTimeout(() => this.requestJiraSync(), 20_000);
+      boot.unref?.();
+      this.jiraTimer = setInterval(() => this.requestJiraSync(), 60 * 60_000);
+      this.jiraTimer.unref?.();
+    }
   }
 
   stop(): void {
     this.running = false;
+    if (this.jiraTimer) clearInterval(this.jiraTimer);
     this.wake?.();
   }
+
+  private jiraTimer: NodeJS.Timeout | null = null;
 
   /** Entry point for POST /api/chat. Persists + broadcasts the user message
    * and feeds it to the model. */
@@ -60,6 +70,25 @@ export class LeonAgent {
     this.bus.emit({ type: 'chat.status', state: 'thinking', detail: null });
     this.wake?.();
     return message;
+  }
+
+  /** Ask the agent to refresh the Jira cache (board rail). Silent turn. */
+  requestJiraSync(): void {
+    this.queue.push({
+      type: 'user',
+      message: {
+        role: 'user',
+        content:
+          `[automated jira sync — the user did NOT send this] Refresh the Jira board cache: ` +
+          `fetch the user's assigned issues with searchJiraIssuesUsingJql ` +
+          `(jql: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC", ` +
+          `maxResults 50, fields: summary, status, priority), then call store_jira_issues with ` +
+          `the compact list (key, summary, status, statusCategory name, priority name, and the ` +
+          `browse url). Then reply with exactly: SKIP`,
+      },
+      parent_tool_use_id: null,
+    });
+    this.wake?.();
   }
 
   /**

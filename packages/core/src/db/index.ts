@@ -125,6 +125,18 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // 004 — cache of the user's assigned Jira issues (synced by the agent)
+  `
+  CREATE TABLE jira_issues (
+    key TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL,
+    status_category TEXT,
+    priority TEXT,
+    url TEXT NOT NULL,
+    synced_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export type LeonDb = Database.Database;

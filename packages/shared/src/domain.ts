@@ -117,6 +117,18 @@ export const ChatContent = z.discriminatedUnion('kind', [
 ]);
 export type ChatContent = z.infer<typeof ChatContent>;
 
+/** A Jira issue assigned to the user (cached locally; Leon syncs it). */
+export const JiraIssue = z.object({
+  key: z.string(), // "ENG-3272"
+  summary: z.string(),
+  status: z.string(),
+  statusCategory: z.string().nullish(), // "To Do" | "In Progress" | "Done"
+  priority: z.string().nullish(),
+  url: z.string(),
+  syncedAt: z.string(),
+});
+export type JiraIssue = z.infer<typeof JiraIssue>;
+
 export const ChatMessage = z.object({
   id: z.string(),
   agentSessionId: z.string(), // '' until the agent session is established

@@ -18,7 +18,13 @@ export function registerRoutes(app: FastifyInstance, core: LeonCore): void {
     approvals: (
       core.db.prepare("SELECT * FROM approvals WHERE status = 'pending'").all() as never[]
     ).map(approvalFromRow),
+    jiraIssues: core.jira.list(),
   }));
+
+  app.post('/api/jira/refresh', async (_req, reply) => {
+    core.agent.requestJiraSync();
+    return reply.code(202).send({ accepted: true });
+  });
 
   app.post('/api/tasks', async (req, reply) => {
     const input = CreateTaskInput.safeParse(req.body);
