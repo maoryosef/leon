@@ -86,6 +86,9 @@ export interface PullRequestRow {
   state: string;
   checks: string;
   review_decision: string | null;
+  comment_count: number;
+  last_comment_author: string | null;
+  last_comment_at: string | null;
   last_synced_at: string;
 }
 
@@ -102,6 +105,9 @@ export function prFromRow(r: PullRequestRow): PullRequest {
     state: r.state as PullRequest['state'],
     checks: r.checks as PullRequest['checks'],
     reviewDecision: r.review_decision as PullRequest['reviewDecision'],
+    commentCount: r.comment_count,
+    lastCommentAuthor: r.last_comment_author,
+    lastCommentAt: r.last_comment_at,
     lastSyncedAt: r.last_synced_at,
   };
 }

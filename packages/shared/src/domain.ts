@@ -79,6 +79,11 @@ export const PullRequest = z.object({
   state: PrState,
   checks: PrChecks,
   reviewDecision: z.enum(['approved', 'changes_requested', 'review_required']).nullish(),
+  /** comments + reviews on the PR (all authors) */
+  commentCount: z.number().int().default(0),
+  /** newest comment/review by someone OTHER than the user */
+  lastCommentAuthor: z.string().nullish(),
+  lastCommentAt: z.string().nullish(),
   lastSyncedAt: z.string(),
 });
 export type PullRequest = z.infer<typeof PullRequest>;

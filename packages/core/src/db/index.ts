@@ -137,6 +137,12 @@ const MIGRATIONS: string[] = [
     synced_at TEXT NOT NULL
   );
   `,
+  // 005 — PR conversation tracking (comments/reviews from others)
+  `
+  ALTER TABLE pull_requests ADD COLUMN comment_count INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE pull_requests ADD COLUMN last_comment_author TEXT;
+  ALTER TABLE pull_requests ADD COLUMN last_comment_at TEXT;
+  `,
 ];
 
 export type LeonDb = Database.Database;

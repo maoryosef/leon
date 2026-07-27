@@ -24,3 +24,29 @@ export function useNow(intervalMs = 30_000): number {
   }, [intervalMs]);
   return now;
 }
+
+/** "14:32" — clock time for chat messages. */
+export function clockTime(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** "Sun, Jul 27" — day-separator label. */
+export function dayLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/** true when two ISO timestamps fall on different calendar days. */
+export function differentDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() !== db.getFullYear() ||
+    da.getMonth() !== db.getMonth() ||
+    da.getDate() !== db.getDate()
+  );
+}

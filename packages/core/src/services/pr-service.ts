@@ -19,6 +19,8 @@ interface GhPrView {
   headRefName: string;
   reviewDecision: string;
   author: { login?: string } | null;
+  comments: { author: { login?: string } | null; createdAt: string }[] | null;
+  reviews: { author: { login?: string } | null; submittedAt?: string }[] | null;
   statusCheckRollup: { name?: string; context?: string; conclusion?: string; status?: string; state?: string }[] | null;
 }
 
@@ -30,7 +32,7 @@ interface BranchInfo {
 }
 
 const PR_VIEW_FIELDS =
-  'number,title,url,state,isDraft,headRefName,reviewDecision,author,statusCheckRollup';
+  'number,title,url,state,isDraft,headRefName,reviewDecision,author,comments,reviews,statusCheckRollup';
 
 /**
  * Monitors pull requests two ways, unified by `owner/repo#number`:
@@ -337,8 +339,22 @@ export class PrPoller {
 
     const taskId = attr?.taskId ?? this.taskIdFromJiraKey(pr.title, pr.headRefName);
 
+    // conversation activity: comments + reviews; the newest one from someone
+    // who isn't the user drives "new comment on your PR" notifications
+    const events = [
+      ...(pr.comments ?? []).map((c) => ({ author: c.author?.login ?? '', at: c.createdAt })),
+      ...(pr.reviews ?? [])
+        .filter((r) => r.submittedAt)
+        .map((r) => ({ author: r.author?.login ?? '', at: r.submittedAt! })),
+    ];
+    const commentCount = events.length;
+    const foreign = events
+      .filter((e) => e.author && e.author !== this.login)
+      .sort((a, b) => (a.at < b.at ? -1 : 1));
+    const lastForeign = foreign.length > 0 ? foreign[foreign.length - 1]! : null;
+
     const key = `${nameWithOwner}#${pr.number}`;
-    const fingerprint = JSON.stringify([state, checks, review, pr.title, taskId, attr?.sessionId]);
+    const fingerprint = JSON.stringify([state, checks, review, pr.title, taskId, attr?.sessionId, commentCount, lastForeign?.at]);
     const unchanged = this.fingerprints.get(key) === fingerprint;
     this.fingerprints.set(key, fingerprint);
 
@@ -357,18 +373,19 @@ export class PrPoller {
       this.db
         .prepare(
           `UPDATE pull_requests SET task_id = COALESCE(?, task_id), session_id = COALESCE(?, session_id),
-           branch = ?, title = ?, url = ?, state = ?, checks = ?, review_decision = ?, last_synced_at = ?
+           branch = ?, title = ?, url = ?, state = ?, checks = ?, review_decision = ?,
+           comment_count = ?, last_comment_author = ?, last_comment_at = ?, last_synced_at = ?
            WHERE id = ?`,
         )
-        .run(taskId, attr?.sessionId ?? null, pr.headRefName, pr.title, pr.url, state, checks, review, now, existing.id);
+        .run(taskId, attr?.sessionId ?? null, pr.headRefName, pr.title, pr.url, state, checks, review, commentCount, lastForeign?.author ?? null, lastForeign?.at ?? null, now, existing.id);
     } else {
       this.db
         .prepare(
           `INSERT INTO pull_requests
-           (id, repo_id, task_id, session_id, number, branch, title, url, state, checks, review_decision, last_synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, repo_id, task_id, session_id, number, branch, title, url, state, checks, review_decision, comment_count, last_comment_author, last_comment_at, last_synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(ulid(), repoId, taskId, attr?.sessionId ?? null, pr.number, pr.headRefName, pr.title, pr.url, state, checks, review, now);
+        .run(ulid(), repoId, taskId, attr?.sessionId ?? null, pr.number, pr.headRefName, pr.title, pr.url, state, checks, review, commentCount, lastForeign?.author ?? null, lastForeign?.at ?? null, now);
     }
     const row = this.db
       .prepare('SELECT * FROM pull_requests WHERE repo_id = ? AND number = ?')

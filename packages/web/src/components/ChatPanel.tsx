@@ -2,7 +2,7 @@ import type { ChatMessage } from '@leon/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { fetchChatHistory, sendChat } from '../lib/api';
-import { relativeTime, useNow } from '../lib/time';
+import { clockTime, dayLabel, differentDay, relativeTime, useNow } from '../lib/time';
 import { markChatSeen, seedChatHistory, setChatDraft, useBoardState } from '../lib/ws-store';
 import { ApprovalCard } from './ApprovalCard';
 import { Markdown } from './Markdown';
@@ -26,9 +26,13 @@ function Message({
 }) {
   // one-shot arrival highlight for messages that land while the tab is visible
   const arrive = fresh ? ' msg-arrive' : '';
+  // always-visible clock time; the tooltip carries the relative + full form
   const stamp = (
-    <span className="mt-0.5 font-mono text-[9.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
-      {relativeTime(message.createdAt, now)}
+    <span
+      title={`${relativeTime(message.createdAt, now)} — ${new Date(message.createdAt).toLocaleString()}`}
+      className="mt-0.5 font-mono text-[9px] text-faint/80"
+    >
+      {clockTime(message.createdAt)}
     </span>
   );
 
@@ -305,14 +309,24 @@ export function ChatPanel() {
               </p>
             </div>
           ) : (
-            chatMessages.map((message) => (
-              <Message
-                key={message.id}
-                message={message}
-                now={now}
-                fresh={freshIds.has(message.id)}
-              />
-            ))
+            chatMessages.map((message, index) => {
+              const prev = chatMessages[index - 1];
+              const newDay = !prev || differentDay(prev.createdAt, message.createdAt);
+              return (
+                <div key={message.id} className="contents">
+                  {newDay && (
+                    <div className="my-1 flex items-center gap-2">
+                      <span className="h-px flex-1 bg-line" />
+                      <span className="font-mono text-[9.5px] tracking-wide text-faint">
+                        {dayLabel(message.createdAt)}
+                      </span>
+                      <span className="h-px flex-1 bg-line" />
+                    </div>
+                  )}
+                  <Message message={message} now={now} fresh={freshIds.has(message.id)} />
+                </div>
+              );
+            })
           )}
 
           {chatStatus.state === 'thinking' && (
