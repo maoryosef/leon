@@ -1,6 +1,7 @@
 import type { JiraIssue } from '@leon/shared';
 import type { LeonDb } from '../db/index.js';
 import type { EventBus } from '../events.js';
+import type { TaskService } from './task-service.js';
 import { nowIso } from '../util/time.js';
 
 interface JiraRow {
@@ -31,6 +32,7 @@ export class JiraService {
   constructor(
     private db: LeonDb,
     private bus: EventBus,
+    private tasks: TaskService,
   ) {}
 
   list(): JiraIssue[] {
@@ -63,6 +65,28 @@ export class JiraService {
     txn();
     const all = this.list();
     this.bus.emit({ type: 'jira.synced', issues: all });
+    this.promoteInProgress(all);
     return all;
+  }
+
+  /**
+   * In-Progress assigned issues ARE the user's active work — each gets a
+   * board task automatically (source 'jira', linked via jiraKey) unless a
+   * task for that key already exists. Issues absent from a later sync are
+   * left alone: absence can mean Done OR reassigned, and closing someone's
+   * board task on ambiguity is worse than a stale card.
+   */
+  private promoteInProgress(issues: JiraIssue[]): void {
+    const existingKeys = new Set(
+      this.tasks
+        .list()
+        .map((task) => task.jiraKey?.toUpperCase())
+        .filter((key): key is string => Boolean(key)),
+    );
+    for (const issue of issues) {
+      if ((issue.statusCategory ?? '').toLowerCase() !== 'in progress') continue;
+      if (existingKeys.has(issue.key.toUpperCase())) continue;
+      this.tasks.create({ title: issue.summary, jiraKey: issue.key }, 'jira');
+    }
   }
 }

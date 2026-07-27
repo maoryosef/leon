@@ -44,7 +44,7 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
   const prs = new PrPoller(db, bus, sessions, config.discovery.prPollMs);
   const chat = new ChatService(db, bus);
   const approvals = new ApprovalService(db, bus);
-  const jira = new JiraService(db, bus);
+  const jira = new JiraService(db, bus, tasks);
   const agent = new LeonAgent(config, bus, chat, approvals, {
     sessions,
     tasks,
