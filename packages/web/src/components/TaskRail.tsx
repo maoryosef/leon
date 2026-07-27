@@ -525,6 +525,7 @@ export function TaskRail({
     const map = new Map<string, PullRequest[]>();
     for (const pr of pullRequests) {
       if (pr.taskId == null) continue;
+      if (pr.state === 'merged' || pr.state === 'closed') continue; // finished business
       const list = map.get(pr.taskId) ?? [];
       list.push(pr);
       map.set(pr.taskId, list);

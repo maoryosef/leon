@@ -162,11 +162,10 @@ export function AttentionDock({
 
   const needsYou = waitingPermission.length + waitingInput.length;
 
-  const prs = [...pullRequests].sort((a, b) => {
-    const doneA = a.state === 'merged' || a.state === 'closed' ? 1 : 0;
-    const doneB = b.state === 'merged' || b.state === 'closed' ? 1 : 0;
-    return doneA - doneB || (a.url < b.url ? -1 : 1);
-  });
+  // merged/closed PRs are finished business — no point showing them
+  const prs = pullRequests
+    .filter((pr) => pr.state === 'open' || pr.state === 'draft')
+    .sort((a, b) => (a.url < b.url ? -1 : 1));
 
   return (
     <aside

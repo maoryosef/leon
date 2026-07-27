@@ -142,6 +142,19 @@ export class PrPoller {
   }
 
   private seedOpenKeysFromDb(): void {
+    // merged/closed rows are hidden in the UI; prune them after a week so
+    // the table doesn't accumulate finished business forever
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
+    const stale = this.db
+      .prepare(
+        "SELECT id FROM pull_requests WHERE state IN ('merged','closed') AND last_synced_at < ?",
+      )
+      .all(cutoff) as { id: string }[];
+    for (const { id } of stale) {
+      this.db.prepare('DELETE FROM pull_requests WHERE id = ?').run(id);
+      this.bus.emit({ type: 'pr.deleted', pullRequestId: id });
+    }
+
     const rows = this.db
       .prepare(
         `SELECT r.name AS repo, p.number FROM pull_requests p
