@@ -19,14 +19,15 @@ export interface TermViewHandle {
   blur(): void;
 }
 
+// terminal stays a shade darker than the twilight app chrome for contrast
 const TERM_THEME = {
-  background: '#0b0c0e',
-  foreground: '#d8dade',
-  cursor: '#e2a33e',
-  cursorAccent: '#0b0c0e',
-  selectionBackground: '#2d3138',
-  black: '#17191d',
-  brightBlack: '#5b6066',
+  background: '#1b1f2b',
+  foreground: '#e6e9f2',
+  cursor: '#f2b95c',
+  cursorAccent: '#1b1f2b',
+  selectionBackground: '#3a4258',
+  black: '#242938',
+  brightBlack: '#8891ab',
 };
 
 /**

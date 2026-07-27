@@ -5,18 +5,19 @@
   /* palette — dark operations console, one amber accent.
      Lifted a step brighter (2026-07-27) for readability: backgrounds up a
      touch, text/dim/faint up more, lines more present. */
-  --color-bg: #121418;
-  --color-panel: #17191e;
-  --color-raise: #1f2228;
-  --color-line: #33373e;
-  --color-line-strong: #4a4f58;
-  --color-txt: #eceef2;
-  --color-dim: #aab0b9;
-  --color-faint: #7d838d;
-  --color-accent: #e8ac4a; /* needs-attention + wordmark ONLY */
-  --color-ok: #5cc46e;
-  --color-info: #6fa8e0;
-  --color-danger: #e2645b;
+  /* "Twilight" (design option 4d): mid-tone blue-leaning base, golden accent */
+  --color-bg: #242938;
+  --color-panel: #293043;
+  --color-raise: #343c52;
+  --color-line: #465073;
+  --color-line-strong: #5a6488;
+  --color-txt: #eef1f8;
+  --color-dim: #b6bed2;
+  --color-faint: #8891ab;
+  --color-accent: #f2b95c; /* needs-attention + wordmark ONLY */
+  --color-ok: #66c98a;
+  --color-info: #82aef2;
+  --color-danger: #ea7a6e;
 
   --font-mono:
     ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
