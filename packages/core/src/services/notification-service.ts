@@ -1,7 +1,24 @@
 import { execFile } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import type { PullRequest, Session, SessionStatus, WsEvent } from '@leon/shared';
 import type { LeonConfig } from '../config.js';
 import type { EventBus } from '../events.js';
+
+const execFileP = promisify(execFile);
+
+/** AppleScript for the Leon.app notifier applet: reads the message from
+ * ~/.leon/notify.txt and posts it — attributed to "Leon" with its icon. */
+const APPLET_SCRIPT = `on run
+  set msgFile to (POSIX path of (path to home folder)) & ".leon/notify.txt"
+  set msg to "Leon"
+  try
+    set msg to read POSIX file msgFile as «class utf8»
+  end try
+  display notification msg with title "Leon"
+end run`;
 
 /** A transition worth telling the user about. */
 export interface AttentionEvent {
@@ -53,6 +70,72 @@ export class NotificationService {
 
   start(): void {
     this.unsubscribe = this.bus.on((event) => this.onEvent(event));
+    void this.ensureNotifierApp();
+  }
+
+  /* ------------- branded notifier: ~/.leon/Leon.app with the avatar ------ */
+
+  private notifierReady = false;
+
+  private get notifierApp(): string {
+    return join(this.config.dataDir, 'Leon.app');
+  }
+
+  /** Builds the applet once per machine (osacompile + icns from leon.png).
+   * Failure is fine — toasts fall back to plain osascript. */
+  private async ensureNotifierApp(): Promise<void> {
+    try {
+      if (existsSync(this.notifierApp)) {
+        this.notifierReady = true;
+        return;
+      }
+      let icon = join(this.config.dataDir, 'leon.png');
+      if (!existsSync(icon)) {
+        // repo fallback: packages/core/src/services → repo root
+        const repoIcon = join(
+          dirname(fileURLToPath(import.meta.url)),
+          '..', '..', '..', '..',
+          'packages', 'web', 'public', 'leon.png',
+        );
+        if (!existsSync(repoIcon)) return; // no avatar — keep osascript path
+        copyFileSync(repoIcon, icon);
+      }
+      const iconset = join(this.config.dataDir, 'leon.iconset');
+      rmSync(iconset, { recursive: true, force: true });
+      mkdirSync(iconset, { recursive: true });
+      for (const size of [16, 32, 128, 256, 512]) {
+        await execFileP('sips', ['-z', String(size), String(size), icon, '--out', join(iconset, `icon_${size}x${size}.png`)]);
+        const dbl = size * 2;
+        await execFileP('sips', ['-z', String(dbl), String(dbl), icon, '--out', join(iconset, `icon_${size}x${size}@2x.png`)]);
+      }
+      const icns = join(this.config.dataDir, 'applet.icns');
+      await execFileP('iconutil', ['-c', 'icns', iconset, '-o', icns]);
+      await execFileP('osacompile', ['-o', this.notifierApp, '-e', APPLET_SCRIPT]);
+      copyFileSync(icns, join(this.notifierApp, 'Contents', 'Resources', 'applet.icns'));
+      await execFileP('touch', [this.notifierApp]);
+      rmSync(iconset, { recursive: true, force: true });
+      this.notifierReady = true;
+    } catch {
+      // sips/osacompile unavailable or sandboxed — plain osascript still works
+    }
+  }
+
+  /** One door for all toasts: branded applet when available, osascript else. */
+  private deliverToast(body: string): void {
+    if (this.notifierReady) {
+      try {
+        writeFileSync(join(this.config.dataDir, 'notify.txt'), body);
+        execFile('open', ['-g', this.notifierApp], () => {});
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    execFile(
+      'osascript',
+      ['-e', `display notification "${body.replace(/["\\]/g, '')}" with title "Leon"`],
+      () => {},
+    );
   }
 
   stop(): void {
@@ -136,11 +219,7 @@ export class NotificationService {
   }
 
   private toastText(body: string): void {
-    execFile(
-      'osascript',
-      ['-e', `display notification "${body.replace(/["\\]/g, '')}" with title "Leon"`],
-      () => {},
-    );
+    this.deliverToast(body);
   }
 
   private isNotable(from: SessionStatus, to: SessionStatus): boolean {
@@ -152,15 +231,7 @@ export class NotificationService {
   }
 
   private toast(event: AttentionEvent): void {
-    const title = 'Leon';
-    const body = event.headline.replace(/["\\]/g, '');
-    execFile(
-      'osascript',
-      ['-e', `display notification "${body}" with title "${title}"`],
-      () => {
-        /* toast failures are not worth anyone's time */
-      },
-    );
+    this.deliverToast(event.headline);
   }
 
   private enqueueForAgent(event: AttentionEvent): void {
