@@ -190,6 +190,51 @@ function SessionRow({
   );
 }
 
+/** One PR as a compact pill — the leaf of the task → session → PR tree. */
+function PrPill({ pr }: { pr: PullRequest }) {
+  const dot =
+    pr.checks === 'failing'
+      ? 'bg-danger'
+      : pr.checks === 'passing'
+        ? 'bg-ok'
+        : pr.checks === 'pending'
+          ? 'bg-accent'
+          : 'bg-faint';
+  const done = pr.state === 'merged' || pr.state === 'closed';
+  const right = done
+    ? pr.state
+    : pr.reviewDecision === 'approved'
+      ? '✓ approved'
+      : pr.reviewDecision === 'changes_requested'
+        ? '✗ changes'
+        : pr.checks === 'failing'
+          ? '✗ checks'
+          : pr.checks === 'pending'
+            ? 'checks…'
+            : pr.reviewDecision === 'review_required'
+              ? 'review req.'
+              : '';
+  const rightClass =
+    right.startsWith('✓') ? 'text-ok' : right.startsWith('✗') ? 'text-danger' : 'text-faint';
+  return (
+    <a
+      href={pr.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      title={`${pr.title} · ${pr.state} · checks ${pr.checks}`}
+      className={`flex items-center gap-1.5 border border-line bg-panel px-1.5 py-1 font-mono text-[10.5px] hover:border-line-strong ${
+        done ? 'opacity-50' : ''
+      }`}
+    >
+      <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="shrink-0 text-txt">#{pr.number}</span>
+      <span className="min-w-0 truncate text-dim">{pr.title}</span>
+      {right && <span className={`ml-auto shrink-0 ${rightClass}`}>{right}</span>}
+    </a>
+  );
+}
+
 /** "PR ✓/✗" glyph for a task's linked PRs — omitted when nothing is decisive. */
 function prGlyphFor(prs: PullRequest[]): { symbol: string; className: string } | null {
   if (prs.length === 0) return null;
@@ -324,19 +369,45 @@ function TaskCard({
             )}
           </div>
 
-          {sessions.length === 0 ? (
+          {sessions.length === 0 && prs.length === 0 ? (
             <p className="px-1 py-1.5 text-center font-mono text-[10.5px] text-faint">
               no sessions
             </p>
           ) : (
-            sessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                assignableTasks={assignableTasks}
-                onLink={onLink}
-              />
-            ))
+            <>
+              {sessions.map((session) => {
+                const sessionPrs = prs.filter((pr) => pr.sessionId === session.id);
+                return (
+                  <div key={session.id} className="flex flex-col">
+                    <SessionRow
+                      session={session}
+                      assignableTasks={assignableTasks}
+                      onLink={onLink}
+                    />
+                    {/* the session's output: its PR(s), or the empty slot */}
+                    <div className="ml-2.5 flex flex-col gap-1 border-l border-line pt-1 pl-2">
+                      {sessionPrs.length > 0 ? (
+                        sessionPrs.map((pr) => <PrPill key={pr.id} pr={pr} />)
+                      ) : session.status !== 'dead' ? (
+                        <span className="px-0.5 font-mono text-[9.5px] text-faint">
+                          no PR yet
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+              {/* task-level PRs whose session is gone/unknown */}
+              {prs.filter((pr) => !sessions.some((s) => s.id === pr.sessionId)).length > 0 && (
+                <div className="mt-0.5 flex flex-col gap-1 border-t border-line/60 pt-1.5">
+                  {prs
+                    .filter((pr) => !sessions.some((s) => s.id === pr.sessionId))
+                    .map((pr) => (
+                      <PrPill key={pr.id} pr={pr} />
+                    ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
