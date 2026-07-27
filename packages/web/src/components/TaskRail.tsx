@@ -300,17 +300,37 @@ function TaskCard({
         muted ? 'opacity-60' : ''
       }`}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="flex w-full flex-col gap-1 px-2 py-1.5 text-left hover:bg-raise"
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
+        className="group flex w-full cursor-pointer flex-col gap-1 px-2 py-1.5 text-left hover:bg-raise"
       >
         <div className="flex w-full items-center gap-1.5">
           <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot}`} />
           <span className="min-w-0 truncate text-[12px] font-medium text-txt" title={task.title}>
             {task.title}
           </span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-faint">
+          {!muted && (
+            <button
+              type="button"
+              title="Mark done"
+              onClick={(event) => {
+                event.stopPropagation();
+                actions.onSetStatus(task.id, 'done');
+              }}
+              className="ml-auto shrink-0 border border-line px-1 py-px font-mono text-[10px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:border-ok/60 hover:text-ok focus:opacity-100"
+            >
+              ✓ done
+            </button>
+          )}
+          <span className={`shrink-0 font-mono text-[10px] text-faint ${muted ? 'ml-auto' : ''}`}>
             {expanded ? '▾' : '▸'}
           </span>
         </div>
@@ -331,7 +351,7 @@ function TaskCard({
             </>
           )}
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="flex flex-col gap-1.5 border-t border-line p-1.5">
