@@ -43,9 +43,32 @@ export interface MutationMeta {
   ttlMs?: number;
 }
 
+/** Atlassian MCP tools Leon may call without approval (read-only). */
+export const ATLASSIAN_READONLY_TOOLS = new Set([
+  'mcp__atlassian__atlassianUserInfo',
+  'mcp__atlassian__getAccessibleAtlassianResources',
+  'mcp__atlassian__getVisibleJiraProjects',
+  'mcp__atlassian__searchJiraIssuesUsingJql',
+  'mcp__atlassian__getJiraIssue',
+  'mcp__atlassian__getTransitionsForJiraIssue',
+  'mcp__atlassian__getJiraIssueRemoteIssueLinks',
+  'mcp__atlassian__lookupJiraAccountId',
+  'mcp__atlassian__search',
+]);
+
 /** Which tools mutate, how risky they are, and how to describe them to the
  * user on the ApprovalCard. Returns null for read-only tools. */
 export function describeMutation(toolName: string, input: Record<string, unknown>): MutationMeta | null {
+  // Atlassian tools: reads are free, every write is approval-gated with a
+  // generic-but-honest summary (the input JSON is on the card anyway).
+  if (toolName.startsWith('mcp__atlassian__')) {
+    if (ATLASSIAN_READONLY_TOOLS.has(toolName)) return null;
+    const bare = toolName.replace(/^mcp__atlassian__/, '');
+    const hint = String(
+      input.issueIdOrKey ?? input.issueKey ?? input.projectKey ?? input.pageId ?? '',
+    );
+    return { summary: `Jira/Confluence: ${bare}${hint ? ` on ${hint}` : ''}`, risk: 'medium' };
+  }
   const name = toolName.replace(/^mcp__leon__/, '');
   const s = (k: string) => String(input[k] ?? '');
   switch (name) {
@@ -270,12 +293,19 @@ export function createLeonToolServer(deps: ToolDeps) {
 
   const create_task = tool(
     'create_task',
-    'Create a new task on the board. Requires user approval.',
-    { title: z.string().min(1).max(200), description: z.string().max(2000).optional() },
+    'Create a new task on the board (optionally linked to a Jira issue via jiraKey). Requires user approval.',
+    {
+      title: z.string().min(1).max(200),
+      description: z.string().max(2000).optional(),
+      jiraKey: z.string().max(30).optional().describe('e.g. ENG-3272'),
+    },
     async (args) =>
       reporting('create_task', async () => {
-        const task = deps.tasks.create({ title: args.title, description: args.description }, 'leon');
-        return { ok: `created task "${task.title}" (${task.id.slice(-8)})` };
+        const task = deps.tasks.create(
+          { title: args.title, description: args.description, jiraKey: args.jiraKey },
+          'leon',
+        );
+        return { ok: `created task "${task.title}" (${task.id.slice(-8)})${args.jiraKey ? ` ← ${args.jiraKey}` : ''}` };
       }),
   );
 

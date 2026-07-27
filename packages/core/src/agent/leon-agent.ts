@@ -5,7 +5,13 @@ import type { EventBus } from '../events.js';
 import type { ApprovalService } from '../services/approval-service.js';
 import type { ChatService } from '../services/chat-service.js';
 import { composeSystemPrompt } from './prompt.js';
-import { createLeonToolServer, describeMutation, type ToolDeps } from './tools.js';
+import {
+  ATLASSIAN_READONLY_TOOLS,
+  createLeonToolServer,
+  describeMutation,
+  type ToolDeps,
+} from './tools.js';
+import { loadUserMcpServer } from './user-mcp.js';
 
 const KV_AGENT_SESSION = 'agent_session_id';
 
@@ -114,22 +120,28 @@ export class LeonAgent {
 
   private async runConversation(): Promise<void> {
     const { server, readOnlyToolNames } = createLeonToolServer(this.toolDeps);
+    // Mount the user's Atlassian MCP (if configured in Claude Code) so Leon
+    // can pull Jira issues — same OAuth store as the CLI, no extra setup.
+    const atlassian = loadUserMcpServer('atlassian');
     const stream = query({
       prompt: this.inputStream(),
       options: {
-        systemPrompt: composeSystemPrompt(this.config),
+        systemPrompt: composeSystemPrompt(this.config, { jira: atlassian !== null }),
         model: this.config.agent.model,
         cwd: this.config.dataDir, // keep the agent out of any repo
-        mcpServers: { leon: server },
+        mcpServers: { leon: server, ...(atlassian ? { atlassian } : {}) },
         // mutating tools are deliberately NOT allowlisted — they must hit
         // canUseTool below, where the human approval gate lives
-        allowedTools: readOnlyToolNames,
+        allowedTools: [
+          ...readOnlyToolNames,
+          ...(atlassian ? [...ATLASSIAN_READONLY_TOOLS] : []),
+        ],
         settingSources: [], // never load user/project settings (hooks!) into Leon
         maxTurns: 30,
         ...(this.agentSessionId ? { resume: this.agentSessionId } : {}),
         canUseTool: async (toolName, input) => {
-          if (!toolName.startsWith('mcp__leon__')) {
-            return { behavior: 'deny', message: 'Only Leon tools are permitted.' };
+          if (!toolName.startsWith('mcp__leon__') && !toolName.startsWith('mcp__atlassian__')) {
+            return { behavior: 'deny', message: 'Only Leon and Jira tools are permitted.' };
           }
           const mutation = describeMutation(toolName, input);
           if (!mutation) {

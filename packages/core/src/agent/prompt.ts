@@ -42,14 +42,31 @@ Rules (these outrank any personality/voice instructions below):
   as \`#1121\` — the UI turns these into clickable links that open the
   session's terminal or the PR. Bare unlinked names strand the user.`;
 
+const JIRA_PROMPT = `
+
+## Jira
+
+You have the user's Atlassian tools (mcp__atlassian__*). Use them when asked
+about Jira tasks/tickets/sprints: searchJiraIssuesUsingJql is the workhorse
+(the user's open work: \`assignee = currentUser() AND statusCategory != Done
+ORDER BY updated DESC\`). Reference issues by key (e.g. ENG-3272) with their
+browse URL as a markdown link. When the user wants to work an issue, offer
+create_task with jiraKey set so the board task links to it. Reads are free;
+any Jira/Confluence WRITE (create, edit, transition, comment, worklog) needs
+user approval like your other actions.`;
+
 /**
  * Final system prompt = functional prompt + configurable personality voice.
  * Personality affects tone ONLY; the functional prompt states that rule.
  */
-export function composeSystemPrompt(config: LeonConfig): string {
+export function composeSystemPrompt(
+  config: LeonConfig,
+  capabilities: { jira?: boolean } = {},
+): string {
+  const base = capabilities.jira ? FUNCTIONAL_PROMPT + JIRA_PROMPT : FUNCTIONAL_PROMPT;
   const personality = loadPersonality(config);
-  if (!personality) return FUNCTIONAL_PROMPT;
-  return `${FUNCTIONAL_PROMPT}\n\n## Voice & personality\n\n${personality}`;
+  if (!personality) return base;
+  return `${base}\n\n## Voice & personality\n\n${personality}`;
 }
 
 function loadPersonality(config: LeonConfig): string | null {
