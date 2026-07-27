@@ -22,6 +22,7 @@ export const WsEvent = z.discriminatedUnion('type', [
     session: Session,
   }),
   z.object({ type: z.literal('pr.upserted'), pullRequest: PullRequest }),
+  z.object({ type: z.literal('pr.deleted'), pullRequestId: z.string() }),
   z.object({ type: z.literal('approval.requested'), approval: Approval }),
   z.object({ type: z.literal('approval.resolved'), approval: Approval }),
   z.object({ type: z.literal('chat.message'), message: ChatMessage }),

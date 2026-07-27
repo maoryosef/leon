@@ -205,6 +205,12 @@ export function applyEvent(event: WsEvent): void {
     case 'pr.upserted':
       setState({ ...state, pullRequests: upsert(state.pullRequests, event.pullRequest) });
       break;
+    case 'pr.deleted':
+      setState({
+        ...state,
+        pullRequests: state.pullRequests.filter((pr) => pr.id !== event.pullRequestId),
+      });
+      break;
     case 'approval.requested':
       setState({ ...state, approvals: upsert(state.approvals, event.approval) });
       break;

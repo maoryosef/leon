@@ -18,6 +18,7 @@ interface GhPrView {
   isDraft: boolean;
   headRefName: string;
   reviewDecision: string;
+  author: { login?: string } | null;
   statusCheckRollup: { name?: string; context?: string; conclusion?: string; status?: string; state?: string }[] | null;
 }
 
@@ -29,7 +30,7 @@ interface BranchInfo {
 }
 
 const PR_VIEW_FIELDS =
-  'number,title,url,state,isDraft,headRefName,reviewDecision,statusCheckRollup';
+  'number,title,url,state,isDraft,headRefName,reviewDecision,author,statusCheckRollup';
 
 /**
  * Monitors pull requests two ways, unified by `owner/repo#number`:
@@ -43,6 +44,9 @@ const PR_VIEW_FIELDS =
 export class PrPoller {
   private timer: NodeJS.Timeout | null = null;
   private ticking = false;
+  /** The gh-authenticated user; only PRs they authored are tracked. */
+  private login: string | null = null;
+  private purged = false;
   /** repoRoot -> nameWithOwner (null = not a github repo / gh failed) */
   private repoNameCache = new Map<string, string | null>();
   /** "owner/repo#n" fingerprints for change detection */
@@ -94,11 +98,18 @@ export class PrPoller {
         if (num !== null) targets.set(`${b.nameWithOwner}#${num}`, b);
       }
 
+      const login = await this.ghLogin();
       const stillOpen = new Set<string>();
       for (const [key, attribution] of targets) {
         const [repo, numStr] = key.split('#') as [string, string];
         const view = await this.viewPr(repo, Number(numStr));
         if (!view) continue;
+        // Only the user's own PRs are tracked — session branches can carry
+        // other people's PRs, and those are noise here.
+        if (login && view.author?.login && view.author.login !== login) {
+          this.deleteTracked(repo, view.number);
+          continue;
+        }
         const attr =
           attribution ??
           branches.find((b) => b.nameWithOwner === repo && b.branch === view.headRefName);
@@ -115,6 +126,14 @@ export class PrPoller {
         if (view) this.upsert(repo, view, null);
       }
       this.openKeys = stillOpen;
+
+      // Boot-time reconcile: purge stored rows not authored by the user (or
+      // no longer accessible via gh). Once per daemon run — the intake
+      // filter above keeps new foreign PRs out.
+      if (!this.purged) {
+        await this.purgeForeignRows(login, targets);
+        if (login) this.purged = true;
+      }
     } catch {
       // gh unavailable / offline — try again next tick
     } finally {
@@ -130,6 +149,57 @@ export class PrPoller {
       )
       .all() as { repo: string; number: number }[];
     for (const r of rows) this.openKeys.add(`${r.repo}#${r.number}`);
+  }
+
+  private async ghLogin(): Promise<string | null> {
+    if (this.login) return this.login;
+    try {
+      const { stdout } = await execFileP('gh', ['api', 'user', '-q', '.login'], {
+        timeout: 15_000,
+      });
+      this.login = stdout.trim() || null;
+    } catch {
+      this.login = null; // offline — skip author filtering this tick
+    }
+    return this.login;
+  }
+
+  /** Remove a tracked PR row (wrong author / gone) and tell the UIs. */
+  private deleteTracked(nameWithOwner: string, number: number): void {
+    const row = this.db
+      .prepare(
+        `SELECT p.id FROM pull_requests p JOIN repos r ON r.id = p.repo_id
+         WHERE r.name = ? AND p.number = ?`,
+      )
+      .get(nameWithOwner, number) as { id: string } | undefined;
+    if (!row) return;
+    this.db.prepare('DELETE FROM pull_requests WHERE id = ?').run(row.id);
+    this.fingerprints.delete(`${nameWithOwner}#${number}`);
+    this.openKeys.delete(`${nameWithOwner}#${number}`);
+    this.bus.emit({ type: 'pr.deleted', pullRequestId: row.id });
+  }
+
+  /** One pass over stored rows: drop PRs by other authors and PRs gh can no
+   * longer see (stale repos, lost access). Rows already handled this tick
+   * are skipped. */
+  private async purgeForeignRows(
+    login: string | null,
+    handled: Map<string, unknown>,
+  ): Promise<void> {
+    if (!login) return;
+    const rows = this.db
+      .prepare(
+        `SELECT p.number, r.name AS repo FROM pull_requests p JOIN repos r ON r.id = p.repo_id`,
+      )
+      .all() as { number: number; repo: string }[];
+    for (const row of rows) {
+      const key = `${row.repo}#${row.number}`;
+      if (handled.has(key)) continue;
+      const view = await this.viewPr(row.repo, row.number);
+      if (!view || (view.author?.login && view.author.login !== login)) {
+        this.deleteTracked(row.repo, row.number);
+      }
+    }
   }
 
   private async searchMyOpenPrs(): Promise<{ repo: string; number: number }[]> {
