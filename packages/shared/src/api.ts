@@ -31,6 +31,11 @@ export const SendChatInput = z.object({
 });
 export type SendChatInput = z.infer<typeof SendChatInput>;
 
+export const UpdateScratchpadInput = z.object({
+  content: z.string().max(50_000),
+});
+export type UpdateScratchpadInput = z.infer<typeof UpdateScratchpadInput>;
+
 export const DecideApprovalInput = z.object({
   approve: z.boolean(),
   reason: z.string().max(500).optional(), // shown to Leon on deny

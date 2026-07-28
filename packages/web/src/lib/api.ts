@@ -1,5 +1,6 @@
 import type {
   Approval,
+  UpdateScratchpadInput,
   ChatMessage,
   CreateTaskInput,
   DecideApprovalInput,
@@ -81,6 +82,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchState(): Promise<StateResponse> {
   return request<StateResponse>('/api/state');
+}
+
+export function fetchScratchpad(): Promise<{ content: string; updatedAt: string | null }> {
+  return request('/api/scratchpad');
+}
+
+export function putScratchpad(
+  input: UpdateScratchpadInput,
+): Promise<{ content: string; updatedAt: string }> {
+  return request('/api/scratchpad', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
 }
 
 export function refreshJira(): Promise<{ accepted: boolean }> {

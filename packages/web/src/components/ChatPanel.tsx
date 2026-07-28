@@ -6,6 +6,7 @@ import { clockTime, dayLabel, differentDay, relativeTime, useNow } from '../lib/
 import { markChatSeen, seedChatHistory, setChatDraft, useBoardState } from '../lib/ws-store';
 import { ApprovalCard } from './ApprovalCard';
 import { Markdown } from './Markdown';
+import { Scratchpad } from './Scratchpad';
 
 function toolTooltip(input: unknown): string {
   try {
@@ -96,6 +97,15 @@ export function ChatPanel() {
     chatDraft,
   } = useBoardState();
   const [text, setText] = useState('');
+  const [padOpen, setPadOpen] = useState(() => {
+    try { return window.localStorage.getItem('leon.pad.open') === 'open'; } catch { return false; }
+  });
+  const togglePad = () => {
+    setPadOpen((v) => {
+      try { window.localStorage.setItem('leon.pad.open', v ? 'closed' : 'open'); } catch { /* ok */ }
+      return !v;
+    });
+  };
   const now = useNow();
 
   const pendingApprovals = approvals.filter((approval) => approval.status === 'pending');
@@ -294,7 +304,21 @@ export function ChatPanel() {
         {chatStatus.state === 'thinking' && (
           <span className="throb h-1.5 w-1.5 rounded-full bg-accent" />
         )}
+        <button
+          type="button"
+          onClick={togglePad}
+          title="Shared scratchpad — thoughts/todos Leon reads too"
+          className={`ml-auto border px-1.5 py-px font-mono text-[10.5px] ${
+            padOpen
+              ? 'border-accent/60 bg-accent/10 text-accent'
+              : 'border-line-strong bg-raise text-dim hover:border-dim hover:text-txt'
+          }`}
+        >
+          ✎ pad
+        </button>
       </div>
+
+      {padOpen && <Scratchpad />}
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div

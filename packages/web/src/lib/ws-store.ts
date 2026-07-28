@@ -23,6 +23,8 @@ export interface BoardState {
   sessions: Session[];
   pullRequests: PullRequest[];
   jiraIssues: JiraIssue[];
+  /** last scratchpad state pushed over WS (null until first update) */
+  scratchpad: { content: string; updatedAt: string; origin: 'user' | 'leon' } | null;
   /** Pending approvals only — resolved ones are removed as they resolve. */
   approvals: Approval[];
   /** Most recent approval that resolved with status 'failed' (for the chat feedback line). */
@@ -49,6 +51,7 @@ let state: BoardState = {
   sessions: [],
   pullRequests: [],
   jiraIssues: [],
+  scratchpad: null,
   approvals: [],
   lastApprovalFailure: null,
   chatMessages: [],
@@ -207,6 +210,12 @@ export function applyEvent(event: WsEvent): void {
       break;
     case 'pr.upserted':
       setState({ ...state, pullRequests: upsert(state.pullRequests, event.pullRequest) });
+      break;
+    case 'scratchpad.updated':
+      setState({
+        ...state,
+        scratchpad: { content: event.content, updatedAt: event.updatedAt, origin: event.origin },
+      });
       break;
     case 'jira.synced':
       setState({ ...state, jiraIssues: event.issues });

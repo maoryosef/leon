@@ -3,6 +3,7 @@ import type { LeonCore } from '@leon/core';
 import { approvalFromRow } from '@leon/core';
 import {
   CreateTaskInput,
+  UpdateScratchpadInput,
   DecideApprovalInput,
   LinkSessionInput,
   SendChatInput,
@@ -66,6 +67,14 @@ export function registerRoutes(app: FastifyInstance, core: LeonCore): void {
   });
 
   app.get('/api/chat', async () => core.chat.list());
+
+  app.get('/api/scratchpad', async () => core.scratchpad.get());
+
+  app.put('/api/scratchpad', async (req, reply) => {
+    const input = UpdateScratchpadInput.safeParse(req.body);
+    if (!input.success) return reply.code(400).send({ error: input.error.message });
+    return core.scratchpad.set(input.data.content, 'user');
+  });
 
   app.post('/api/chat', async (req, reply) => {
     const input = SendChatInput.safeParse(req.body);

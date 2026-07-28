@@ -9,6 +9,7 @@ import { ChatService } from './services/chat-service.js';
 import { JiraService } from './services/jira-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { PrPoller } from './services/pr-service.js';
+import { ScratchpadService } from './services/scratchpad-service.js';
 import { SessionService } from './services/session-service.js';
 import { TaskService } from './services/task-service.js';
 import { Tmux } from './tmux/tmux.js';
@@ -25,6 +26,7 @@ export interface LeonCore {
   chat: ChatService;
   approvals: ApprovalService;
   jira: JiraService;
+  scratchpad: ScratchpadService;
   agent: LeonAgent;
   notifications: NotificationService;
   start(): Promise<void>;
@@ -45,11 +47,13 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
   const chat = new ChatService(db, bus);
   const approvals = new ApprovalService(db, bus);
   const jira = new JiraService(db, bus, tasks);
+  const scratchpad = new ScratchpadService(db, bus);
   const agent = new LeonAgent(config, bus, chat, approvals, {
     sessions,
     tasks,
     prs,
     jira,
+    scratchpad,
     tmux,
     tracker: new ApprovalTracker(),
     approvals,
@@ -70,6 +74,7 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     chat,
     approvals,
     jira,
+    scratchpad,
     agent,
     notifications,
     async start() {

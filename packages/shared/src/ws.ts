@@ -15,6 +15,13 @@ export const WsEvent = z.discriminatedUnion('type', [
     jiraIssues: z.array(JiraIssue).optional(),
   }),
   z.object({ type: z.literal('jira.synced'), issues: z.array(JiraIssue) }),
+  z.object({
+    type: z.literal('scratchpad.updated'),
+    content: z.string(),
+    updatedAt: z.string(),
+    /** who saved it — lets clients ignore their own echoes */
+    origin: z.enum(['user', 'leon']),
+  }),
   z.object({ type: z.literal('task.upserted'), task: Task }),
   z.object({ type: z.literal('task.deleted'), taskId: z.string() }),
   z.object({ type: z.literal('session.upserted'), session: Session }),

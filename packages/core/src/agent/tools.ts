@@ -2,6 +2,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { readTranscriptTail } from '../monitor/transcripts.js';
 import type { JiraService } from '../services/jira-service.js';
+import type { ScratchpadService } from '../services/scratchpad-service.js';
 import type { PrPoller } from '../services/pr-service.js';
 import type { SessionService } from '../services/session-service.js';
 import type { TaskService } from '../services/task-service.js';
@@ -12,6 +13,7 @@ export interface ToolDeps {
   tasks: TaskService;
   prs: PrPoller;
   jira: JiraService;
+  scratchpad: ScratchpadService;
   tmux: Tmux;
   /** Set by canUseTool after an approval; consumed by the mutating tool
    * handler to report executed/failed back onto that approval. */
@@ -76,6 +78,8 @@ export function describeMutation(toolName: string, input: Record<string, unknown
   switch (name) {
     case 'create_task':
       return { summary: `Create task “${s('title')}”`, risk: 'low' };
+    case 'update_scratchpad':
+      return { summary: `Edit the shared scratchpad (${String(input.content ?? '').length} chars)`, risk: 'low' };
     case 'link_session_to_task':
       return {
         summary: input.taskId
@@ -330,6 +334,24 @@ export function createLeonToolServer(deps: ToolDeps) {
       }),
   );
 
+  const read_scratchpad = tool(
+    'read_scratchpad',
+    "The user's shared scratchpad (thoughts, todos, notes). Read it before discussing it.",
+    {},
+    async () => json(deps.scratchpad.get()),
+  );
+
+  const update_scratchpad = tool(
+    'update_scratchpad',
+    'Replace the shared scratchpad content (e.g. append a note, check off a todo). Preserve what the user wrote unless asked otherwise. Requires user approval.',
+    { content: z.string().max(50_000) },
+    async (args) =>
+      reporting('update_scratchpad', async () => {
+        deps.scratchpad.set(args.content, 'leon');
+        return { ok: `scratchpad updated (${args.content.length} chars)` };
+      }),
+  );
+
   const store_jira_issues = tool(
     'store_jira_issues',
     "Replace Leon's local cache of the user's assigned Jira issues (shown in the board's JIRA rail). Call after fetching fresh data from the Atlassian tools.",
@@ -362,8 +384,10 @@ export function createLeonToolServer(deps: ToolDeps) {
     peek_session,
     get_session_transcript_tail,
     store_jira_issues,
+    read_scratchpad,
   ];
   const mutating = [
+    update_scratchpad,
     send_to_session,
     answer_permission_prompt,
     nudge_session,
