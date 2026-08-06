@@ -12,6 +12,7 @@ import {
 } from '../lib/ws-store';
 import { NewTaskForm } from './NewTaskForm';
 import { StatusBadge } from './StatusBadge';
+import { TaskEditModal } from './TaskEditModal';
 
 const STATUS_ORDER: Record<SessionStatus, number> = {
   waiting_permission: 0,
@@ -31,7 +32,6 @@ function sortSessions(sessions: Session[]): Session[] {
 }
 
 interface TaskActions {
-  onRename: (taskId: string, title: string) => void;
   onSetStatus: (taskId: string, status: 'done' | 'archived' | 'active') => void;
   onDelete: (taskId: string) => void;
 }
@@ -39,11 +39,11 @@ interface TaskActions {
 function TaskMenu({
   task,
   actions,
-  onRenameStart,
+  onEdit,
 }: {
   task: Task;
   actions: TaskActions;
-  onRenameStart: () => void;
+  onEdit: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -77,10 +77,10 @@ function TaskMenu({
             className={item}
             onClick={() => {
               setOpen(false);
-              onRenameStart();
+              onEdit();
             }}
           >
-            Rename
+            Edit…
           </button>
           {task.status !== 'done' ? (
             <button
@@ -235,6 +235,44 @@ function PrPill({ pr }: { pr: PullRequest }) {
   );
 }
 
+/**
+ * Read-only one-liner used in a task's collapsed body: the session and, if it
+ * has one, its PR — enough to judge a task without expanding it. Clicking goes
+ * straight to the terminal.
+ */
+function SessionSummary({ session, pr }: { session: Session; pr?: PullRequest }) {
+  const dot =
+    session.status === 'waiting_permission' || session.status === 'waiting_input'
+      ? 'bg-accent'
+      : session.status === 'working'
+        ? 'bg-ok'
+        : session.status === 'dead'
+          ? 'bg-danger/60'
+          : 'bg-info';
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        setOpenSession(session.id);
+      }}
+      title={session.cwd}
+      className={`flex w-full items-center gap-1.5 px-0.5 text-left font-mono text-[11px] hover:text-txt ${
+        session.status === 'dead' ? 'text-faint' : 'text-dim'
+      }`}
+    >
+      <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="min-w-0 truncate">{sessionTitle(session)}</span>
+      {pr && (
+        <span className="ml-auto shrink-0 border border-line px-1 text-[10px] text-faint">
+          #{pr.number}
+          {pr.checks === 'passing' ? ' ✓' : pr.checks === 'failing' ? ' ✗' : ''}
+        </span>
+      )}
+    </button>
+  );
+}
+
 /** "PR ✓/✗" glyph for a task's linked PRs — omitted when nothing is decisive. */
 function prGlyphFor(prs: PullRequest[]): { symbol: string; className: string } | null {
   if (prs.length === 0) return null;
@@ -256,6 +294,7 @@ function TaskCard({
   onToggle,
   actions,
   onLink,
+  onEdit,
 }: {
   task: Task;
   sessions: Session[];
@@ -265,22 +304,8 @@ function TaskCard({
   onToggle: () => void;
   actions: TaskActions;
   onLink: (sessionId: string, taskId: string | null) => void;
+  onEdit: () => void;
 }) {
-  const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (renaming) inputRef.current?.select();
-  }, [renaming]);
-
-  const commitRename = () => {
-    setRenaming(false);
-    if (draft.trim() && draft.trim() !== task.title) {
-      actions.onRename(task.id, draft.trim());
-    }
-  };
-
   const needsYou = sessions.filter(
     (session) =>
       session.status === 'waiting_permission' || session.status === 'waiting_input',
@@ -288,18 +313,22 @@ function TaskCard({
   const anyWorking = sessions.some((session) => session.status === 'working');
   const allIdle =
     sessions.length > 0 && sessions.every((session) => session.status === 'idle_done');
-  const dot =
+  /** the cap's left stripe: the task's loudest session state */
+  const stripe =
     needsYou > 0 ? 'bg-accent' : anyWorking ? 'bg-ok' : allIdle ? 'bg-info' : 'bg-faint';
 
   const prGlyph = prGlyphFor(prs);
   const muted = task.status === 'done' || task.status === 'archived';
+  const orphanPrs = prs.filter((pr) => !sessions.some((session) => session.id === pr.sessionId));
+  const empty = sessions.length === 0 && prs.length === 0;
 
   return (
     <div
-      className={`shrink-0 border bg-bg ${needsYou > 0 ? 'border-accent/40' : 'border-line'} ${
-        muted ? 'opacity-60' : ''
-      }`}
+      className={`shrink-0 border bg-bg ${
+        needsYou > 0 ? 'border-accent' : 'border-line-strong'
+      } ${muted ? 'opacity-60' : ''}`}
     >
+      {/* title cap — filled, with the status stripe running through it */}
       <div
         role="button"
         tabIndex={0}
@@ -310,83 +339,105 @@ function TaskCard({
             onToggle();
           }
         }}
-        className="group flex w-full cursor-pointer flex-col gap-1 px-2 py-1.5 text-left hover:bg-raise"
+        className={`group flex w-full cursor-pointer items-stretch border-b text-left ${
+          needsYou > 0
+            ? 'border-accent/50 bg-accent/15 hover:bg-accent/25'
+            : 'border-line-strong bg-raise hover:bg-line/70'
+        }`}
       >
-        <div className="flex w-full items-center gap-1.5">
-          <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot}`} />
-          <span className="min-w-0 truncate text-[12px] font-medium text-txt" title={task.title}>
-            {task.title}
-          </span>
-          {!muted && (
-            <button
-              type="button"
-              title="Mark done"
-              onClick={(event) => {
-                event.stopPropagation();
-                actions.onSetStatus(task.id, 'done');
-              }}
-              className="ml-auto shrink-0 border border-line px-1 py-px font-mono text-[10px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:border-ok/60 hover:text-ok focus:opacity-100"
+        <span aria-hidden className={`w-1 shrink-0 ${stripe}`} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <span
+              /* the task name is the headline — let it wrap to two lines rather than truncate */
+              className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-tight font-semibold tracking-[-0.012em] text-txt"
+              title={task.title}
             >
-              ✓ done
-            </button>
-          )}
-          <span className={`shrink-0 font-mono text-[10px] text-faint ${muted ? 'ml-auto' : ''}`}>
-            {expanded ? '▾' : '▸'}
-          </span>
-        </div>
-        <div className="flex items-center gap-1 font-mono text-[10px] text-faint">
-          <span>
-            {sessions.length} session{sessions.length === 1 ? '' : 's'}
-          </span>
-          {needsYou > 0 && (
-            <>
-              <span>·</span>
-              <span className="text-accent">{needsYou} needs you</span>
-            </>
-          )}
-          {prGlyph && (
-            <>
-              <span>·</span>
-              <span className={prGlyph.className}>PR {prGlyph.symbol}</span>
-            </>
+              {task.title}
+            </span>
+            {task.jiraKey && (
+              <span className="shrink-0 border border-line-strong px-1 py-px font-mono text-[9.5px] text-dim">
+                {task.jiraKey}
+              </span>
+            )}
+            {!muted && (
+              <button
+                type="button"
+                title="Mark done"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  actions.onSetStatus(task.id, 'done');
+                }}
+                className="shrink-0 border border-line px-1 py-px font-mono text-[10px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:border-ok/60 hover:text-ok focus:opacity-100"
+              >
+                ✓ done
+              </button>
+            )}
+            <span className="shrink-0 font-mono text-[10px] text-faint">
+              {expanded ? '▾' : '▸'}
+            </span>
+          </div>
+          {/* nothing under this task yet — say so here instead of opening a body */}
+          {empty && !expanded && (
+            <span className="font-mono text-[10px] text-faint">no sessions</span>
           )}
         </div>
       </div>
 
-      {expanded && (
-        <div className="flex flex-col gap-1.5 border-t border-line p-1.5">
-          <div className="flex min-h-6 items-center gap-1.5 px-0.5">
-            {renaming ? (
-              <input
-                ref={inputRef}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') commitRename();
-                  if (event.key === 'Escape') setRenaming(false);
-                }}
-                className="w-full border border-line-strong bg-bg px-1 py-0.5 text-[11.5px] text-txt outline-none"
-              />
-            ) : (
+      {/* collapsed body — the task's sessions and PRs, read-only */}
+      {!expanded && !empty && (
+        <div className="flex flex-col gap-1 px-1.5 py-1.5">
+          {sessions.slice(0, 4).map((session) => (
+            <SessionSummary
+              key={session.id}
+              session={session}
+              pr={prs.find((pr) => pr.sessionId === session.id)}
+            />
+          ))}
+          {sessions.length > 4 && (
+            <span className="px-0.5 font-mono text-[10px] text-faint">
+              +{sessions.length - 4} more
+            </span>
+          )}
+          {orphanPrs.map((pr) => (
+            <PrPill key={pr.id} pr={pr} />
+          ))}
+          <div className="flex items-center gap-1 px-0.5 font-mono text-[10px] text-faint">
+            <span>
+              {sessions.length} session{sessions.length === 1 ? '' : 's'}
+            </span>
+            {needsYou > 0 && (
               <>
-                {task.jiraKey && (
-                  <span className="shrink-0 border border-line-strong px-1 py-px font-mono text-[9.5px] text-dim">
-                    {task.jiraKey}
-                  </span>
-                )}
-                <span className="font-mono text-[9.5px] uppercase text-faint">{task.status}</span>
-                <span className="ml-auto" />
-                <TaskMenu
-                  task={task}
-                  actions={actions}
-                  onRenameStart={() => {
-                    setDraft(task.title);
-                    setRenaming(true);
-                  }}
-                />
+                <span>·</span>
+                <span className="text-accent">{needsYou} needs you</span>
               </>
             )}
+            {prGlyph && (
+              <>
+                <span>·</span>
+                <span className={prGlyph.className}>PR {prGlyph.symbol}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="flex flex-col gap-1.5 p-1.5">
+          <div className="flex min-h-6 items-center gap-1.5 px-0.5">
+            {/* jiraKey lives in the cap now — this row carries the rest */}
+            <span className="font-mono text-[9.5px] uppercase text-faint">{task.status}</span>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onEdit();
+              }}
+              className="ml-auto border border-line px-1 py-px font-mono text-[10px] text-faint hover:border-line-strong hover:text-txt"
+            >
+              edit
+            </button>
+            <TaskMenu task={task} actions={actions} onEdit={onEdit} />
           </div>
 
           {sessions.length === 0 && prs.length === 0 ? (
@@ -453,6 +504,7 @@ export function TaskRail({
   mobileOpen: boolean;
 }) {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
@@ -494,7 +546,6 @@ export function TaskRail({
   });
 
   const actions: TaskActions = {
-    onRename: (taskId, title) => updateTaskMutation.mutate({ taskId, title }),
     onSetStatus: (taskId, status) => updateTaskMutation.mutate({ taskId, status }),
     onDelete: (taskId) => deleteTaskMutation.mutate(taskId),
   };
@@ -516,6 +567,8 @@ export function TaskRail({
     [tasks],
   );
   const railTasks = showClosed ? [...openTasks, ...closedTasks] : openTasks;
+  // follow the live task object so the modal reflects renames landing over WS
+  const editingTask = tasks.find((task) => task.id === editingTaskId);
 
   const taskIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
 
@@ -555,7 +608,7 @@ export function TaskRail({
 
   return (
     <aside
-      className={`flex w-[250px] shrink-0 flex-col border-r border-line bg-panel ${
+      className={`flex w-[300px] shrink-0 flex-col border-r border-line bg-panel ${
         mobileOpen
           ? 'max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:left-7 max-[1100px]:z-20 max-[1100px]:shadow-[12px_0_40px_rgba(0,0,0,0.7)]'
           : 'max-[1100px]:hidden'
@@ -563,7 +616,7 @@ export function TaskRail({
     >
       <div className="flex shrink-0 items-center justify-between border-b border-line px-3 py-2">
         <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint select-none">
-          Tasks
+          Tasks · {railTasks.length}
         </span>
         <button
           type="button"
@@ -594,6 +647,7 @@ export function TaskRail({
                 }
                 actions={actions}
                 onLink={handleLink}
+                onEdit={() => setEditingTaskId(task.id)}
               />
             ))}
 
@@ -656,6 +710,10 @@ export function TaskRail({
       </div>
 
       {newTaskOpen && <NewTaskForm onClose={() => setNewTaskOpen(false)} />}
+
+      {editingTask && (
+        <TaskEditModal task={editingTask} onClose={() => setEditingTaskId(null)} />
+      )}
     </aside>
   );
 }
