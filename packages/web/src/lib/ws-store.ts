@@ -280,6 +280,11 @@ export function applyTask(task: Task): void {
   setState({ ...state, tasks: upsert(state.tasks, task) });
 }
 
+/** Replace the whole task list (used by the reorder response). */
+export function applyTasks(tasks: Task[]): void {
+  setState({ ...state, tasks });
+}
+
 export function removeTask(taskId: string): void {
   setState({ ...state, tasks: state.tasks.filter((task) => task.id !== taskId) });
 }

@@ -143,6 +143,15 @@ const MIGRATIONS: string[] = [
   ALTER TABLE pull_requests ADD COLUMN last_comment_author TEXT;
   ALTER TABLE pull_requests ADD COLUMN last_comment_at TEXT;
   `,
+  // 006 — user-controlled task order in the rail (backfilled by creation time)
+  `
+  ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+  UPDATE tasks SET sort_order = (
+    SELECT COUNT(*) FROM tasks other
+    WHERE other.created_at < tasks.created_at
+       OR (other.created_at = tasks.created_at AND other.id < tasks.id)
+  );
+  `,
 ];
 
 export type LeonDb = Database.Database;

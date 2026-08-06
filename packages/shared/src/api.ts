@@ -16,6 +16,12 @@ export const UpdateTaskInput = z.object({
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 
+/** Full ordering of the rail: every id, in the order they should appear. */
+export const ReorderTasksInput = z.object({
+  ids: z.array(z.string()).min(1),
+});
+export type ReorderTasksInput = z.infer<typeof ReorderTasksInput>;
+
 export const LinkSessionInput = z.object({
   taskId: z.string().nullable(), // null unlinks (back to Inbox)
 });

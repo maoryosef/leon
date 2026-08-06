@@ -113,6 +113,14 @@ export function updateTask(id: string, input: UpdateTaskInput): Promise<Task> {
   });
 }
 
+/** Persist the rail order; returns every task with its new sortOrder. */
+export function reorderTasks(ids: string[]): Promise<Task[]> {
+  return request<Task[]>('/api/tasks/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+}
+
 export function deleteTask(id: string): Promise<void> {
   return request<void>(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

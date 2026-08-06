@@ -12,7 +12,9 @@ export class TaskService {
   ) {}
 
   list(): Task[] {
-    const rows = this.db.prepare('SELECT * FROM tasks ORDER BY created_at').all() as TaskRow[];
+    const rows = this.db
+      .prepare('SELECT * FROM tasks ORDER BY sort_order, created_at')
+      .all() as TaskRow[];
     return rows.map(taskFromRow);
   }
 
@@ -24,12 +26,25 @@ export class TaskService {
   create(input: CreateTaskInput, source: Task['source'] = 'manual'): Task {
     const now = nowIso();
     const id = ulid();
+    // new tasks land at the top of the rail, where you'll see them
+    const { min } = this.db.prepare('SELECT MIN(sort_order) AS min FROM tasks').get() as {
+      min: number | null;
+    };
     this.db
       .prepare(
-        `INSERT INTO tasks (id, title, description, status, source, jira_key, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, title, description, status, source, jira_key, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.title, input.description ?? null, source, input.jiraKey ?? null, now, now);
+      .run(
+        id,
+        input.title,
+        input.description ?? null,
+        source,
+        input.jiraKey ?? null,
+        (min ?? 0) - 1,
+        now,
+        now,
+      );
     const task = this.get(id)!;
     this.bus.emit({ type: 'task.upserted', task });
     return task;
@@ -54,6 +69,33 @@ export class TaskService {
     const task = this.get(id)!;
     this.bus.emit({ type: 'task.upserted', task });
     return task;
+  }
+
+  /**
+   * Apply an explicit rail order. `ids` is the front of the list — anything
+   * not named keeps its relative order behind them, so a partial list (e.g.
+   * only the open tasks) never scrambles the rest.
+   */
+  reorder(ids: string[]): Task[] {
+    const current = this.list();
+    const byId = new Map(current.map((task) => [task.id, task]));
+    const front = ids.filter((id) => byId.has(id));
+    if (front.length === 0) return current;
+    const named = new Set(front);
+    const finalOrder = [...front, ...current.filter((t) => !named.has(t.id)).map((t) => t.id)];
+
+    const setOrder = this.db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?');
+    this.db.transaction(() => {
+      finalOrder.forEach((id, index) => setOrder.run(index, id));
+    })();
+
+    const tasks = this.list();
+    for (const task of tasks) {
+      if (byId.get(task.id)?.sortOrder !== task.sortOrder) {
+        this.bus.emit({ type: 'task.upserted', task });
+      }
+    }
+    return tasks;
   }
 
   delete(id: string): boolean {

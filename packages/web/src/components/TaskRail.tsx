@@ -1,11 +1,12 @@
 import type { PullRequest, Session, SessionStatus, Task, TaskStatus } from '@leon/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteTask, linkSession, refreshJira, updateTask } from '../lib/api';
+import { deleteTask, linkSession, refreshJira, reorderTasks, updateTask } from '../lib/api';
 import { sessionTitle } from '../lib/format';
 import {
   applySession,
   applyTask,
+  applyTasks,
   removeTask,
   setOpenSession,
   useBoardState,
@@ -29,6 +30,11 @@ function sortSessions(sessions: Session[]): Session[] {
     if (byStatus !== 0) return byStatus;
     return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt);
   });
+}
+
+/** Rail order is the user's own: sortOrder first, creation time as tiebreak. */
+function byRailOrder(a: Task, b: Task): number {
+  return a.sortOrder - b.sortOrder || Date.parse(a.createdAt) - Date.parse(b.createdAt);
 }
 
 interface TaskActions {
@@ -295,6 +301,7 @@ function TaskCard({
   actions,
   onLink,
   onEdit,
+  dnd,
 }: {
   task: Task;
   sessions: Session[];
@@ -305,6 +312,13 @@ function TaskCard({
   actions: TaskActions;
   onLink: (sessionId: string, taskId: string | null) => void;
   onEdit: () => void;
+  /** drag-to-reorder wiring: the cap is the handle, the card is the target */
+  dnd: {
+    dragging: boolean;
+    onDragStart: () => void;
+    onDragEnd: () => void;
+    onDragOver: (event: React.DragEvent) => void;
+  };
 }) {
   const needsYou = sessions.filter(
     (session) =>
@@ -324,14 +338,24 @@ function TaskCard({
 
   return (
     <div
+      onDragOver={dnd.onDragOver}
+      onDrop={(event) => event.preventDefault()}
       className={`shrink-0 border bg-bg ${
         needsYou > 0 ? 'border-accent' : 'border-line-strong'
-      } ${muted ? 'opacity-60' : ''}`}
+      } ${muted ? 'opacity-60' : ''} ${dnd.dragging ? 'opacity-40' : ''}`}
     >
-      {/* title cap — filled, with the status stripe running through it */}
+      {/* title cap — filled, with the status stripe running through it.
+          Doubles as the drag handle for reordering the rail. */}
       <div
         role="button"
         tabIndex={0}
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', task.id);
+          dnd.onDragStart();
+        }}
+        onDragEnd={dnd.onDragEnd}
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -339,7 +363,8 @@ function TaskCard({
             onToggle();
           }
         }}
-        className={`group flex w-full cursor-pointer items-stretch border-b text-left ${
+        title="Drag to reorder"
+        className={`group flex w-full cursor-grab items-stretch border-b text-left active:cursor-grabbing ${
           needsYou > 0
             ? 'border-accent/50 bg-accent/15 hover:bg-accent/25'
             : 'border-line-strong bg-raise hover:bg-line/70'
@@ -348,6 +373,12 @@ function TaskCard({
         <span aria-hidden className={`w-1 shrink-0 ${stripe}`} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5">
           <div className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="shrink-0 font-mono text-[11px] leading-none text-faint opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              ⠿
+            </span>
             <span
               /* the task name is the headline — let it wrap to two lines rather than truncate */
               className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-tight font-semibold tracking-[-0.012em] text-txt"
@@ -559,16 +590,79 @@ export function TaskRail({
   );
 
   const openTasks = useMemo(
-    () => tasks.filter((task) => task.status === 'active' || task.status === 'paused'),
+    () =>
+      tasks
+        .filter((task) => task.status === 'active' || task.status === 'paused')
+        .sort(byRailOrder),
     [tasks],
   );
   const closedTasks = useMemo(
-    () => tasks.filter((task) => task.status === 'done' || task.status === 'archived'),
+    () =>
+      tasks.filter((task) => task.status === 'done' || task.status === 'archived').sort(byRailOrder),
     [tasks],
   );
   const railTasks = showClosed ? [...openTasks, ...closedTasks] : openTasks;
   // follow the live task object so the modal reflects renames landing over WS
   const editingTask = tasks.find((task) => task.id === editingTaskId);
+
+  /* ---- drag to reorder ------------------------------------------------ */
+  /* dragOrder holds the live preview while a card is in flight; once the
+     server confirms, sortOrder takes over again and the preview is dropped. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+
+  const reorderMutation = useMutation({
+    mutationFn: (ids: string[]) => reorderTasks(ids),
+    onSuccess: (updated) => {
+      applyTasks(updated);
+      setDragOrder(null);
+      invalidate();
+    },
+    onError: () => setDragOrder(null), // snap back to the server's order
+  });
+
+  const baseIds = railTasks.map((task) => task.id);
+  const shownIds = dragOrder
+    ? [
+        ...dragOrder.filter((id) => baseIds.includes(id)),
+        ...baseIds.filter((id) => !dragOrder.includes(id)),
+      ]
+    : baseIds;
+  const shownTasks = shownIds
+    .map((id) => railTasks.find((task) => task.id === id))
+    .filter((task): task is Task => task != null);
+
+  /** Move the dragged card before or after `overId`, depending on cursor side. */
+  const dragOverTask = (event: React.DragEvent, overId: string) => {
+    if (!dragId) return;
+    // Accept the drop on every card — including the dragged one, which sits
+    // under the cursor once the preview has moved it. Without this the release
+    // lands on a non-target and Chrome animates the ghost back to the start.
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (dragId === overId) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const after = event.clientY > box.top + box.height / 2;
+    setDragOrder((current) => {
+      const list = (current ?? baseIds).filter((id) => id !== dragId);
+      const at = list.indexOf(overId);
+      if (at === -1) return current;
+      list.splice(after ? at + 1 : at, 0, dragId);
+      return list;
+    });
+  };
+
+  const commitDrag = () => {
+    setDragId(null);
+    if (!dragOrder) return;
+    // include the hidden done/archived tasks so their order survives the write
+    const hidden = tasks.map((task) => task.id).filter((id) => !shownIds.includes(id));
+    if (shownIds.join() === baseIds.join()) {
+      setDragOrder(null);
+      return;
+    }
+    reorderMutation.mutate([...shownIds, ...hidden]);
+  };
 
   const taskIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
 
@@ -627,14 +721,24 @@ export function TaskRail({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
+      <div
+        /* the gaps between cards and the empty space below them accept the
+           drop too, so releasing anywhere in the rail is a real drop */
+        onDragOver={(event) => {
+          if (!dragId) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }}
+        onDrop={(event) => event.preventDefault()}
+        className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2"
+      >
         {!loaded ? (
           <p className="px-2 py-4 text-center font-mono text-[10.5px] text-faint">
             {loadFailed ? 'daemon unreachable — retrying…' : 'loading state…'}
           </p>
         ) : (
           <>
-            {railTasks.map((task) => (
+            {shownTasks.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
@@ -648,6 +752,12 @@ export function TaskRail({
                 actions={actions}
                 onLink={handleLink}
                 onEdit={() => setEditingTaskId(task.id)}
+                dnd={{
+                  dragging: dragId === task.id,
+                  onDragStart: () => setDragId(task.id),
+                  onDragEnd: commitDrag,
+                  onDragOver: (event) => dragOverTask(event, task.id),
+                }}
               />
             ))}
 

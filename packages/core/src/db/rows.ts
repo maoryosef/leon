@@ -9,6 +9,7 @@ export interface TaskRow {
   status: string;
   source: string;
   jira_key: string | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +22,7 @@ export function taskFromRow(r: TaskRow): Task {
     status: r.status as Task['status'],
     source: r.source as Task['source'],
     jiraKey: r.jira_key,
+    sortOrder: r.sort_order,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

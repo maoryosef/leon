@@ -15,6 +15,8 @@ export const Task = z.object({
   status: TaskStatus,
   source: TaskSource,
   jiraKey: z.string().nullish(),
+  /** rail position, ascending; ties break on createdAt */
+  sortOrder: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

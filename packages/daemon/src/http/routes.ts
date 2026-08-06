@@ -6,6 +6,7 @@ import {
   UpdateScratchpadInput,
   DecideApprovalInput,
   LinkSessionInput,
+  ReorderTasksInput,
   SendChatInput,
   UpdateSessionInput,
   UpdateTaskInput,
@@ -31,6 +32,12 @@ export function registerRoutes(app: FastifyInstance, core: LeonCore): void {
     const input = CreateTaskInput.safeParse(req.body);
     if (!input.success) return reply.code(400).send({ error: input.error.message });
     return core.tasks.create(input.data);
+  });
+
+  app.post('/api/tasks/reorder', async (req, reply) => {
+    const input = ReorderTasksInput.safeParse(req.body);
+    if (!input.success) return reply.code(400).send({ error: input.error.message });
+    return core.tasks.reorder(input.data.ids);
   });
 
   app.patch('/api/tasks/:id', async (req, reply) => {
