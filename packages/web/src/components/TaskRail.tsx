@@ -846,7 +846,8 @@ function jiraDot(statusCategory: string | null | undefined): string {
 
 function JiraSection() {
   const { jiraIssues } = useBoardState();
-  const [open, setOpen] = useState(true);
+  // collapsed by default — the rail belongs to tasks; Jira is a lookup
+  const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = () => {
