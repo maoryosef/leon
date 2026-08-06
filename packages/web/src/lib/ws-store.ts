@@ -6,11 +6,13 @@ import { wsUrl } from './token';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
 
-export type View = 'board' | 'sessions';
+export type View = 'board' | 'sessions' | 'archive';
 
-/** URL hash ↔ view: '#sessions' means the SESSIONS view, anything else the board. */
+/** URL hash ↔ view: '#sessions' / '#archive'; anything else is the board. */
 function readViewFromHash(): View {
-  return window.location.hash === '#sessions' ? 'sessions' : 'board';
+  if (window.location.hash === '#sessions') return 'sessions';
+  if (window.location.hash === '#archive') return 'archive';
+  return 'board';
 }
 
 export interface ChatStatus {
@@ -90,10 +92,10 @@ export function useBoardState(): BoardState {
 /** Switch the top-level view and keep the URL hash in sync (so reload/back work). */
 export function setView(view: View): void {
   if (state.view !== view) setState({ ...state, view });
-  const targetHash = view === 'sessions' ? '#sessions' : '';
+  const targetHash = view === 'board' ? '' : `#${view}`;
   if (window.location.hash !== targetHash) {
-    if (view === 'sessions') {
-      window.location.hash = 'sessions';
+    if (view !== 'board') {
+      window.location.hash = view;
     } else {
       // pushState instead of `location.hash = ''` so we don't leave a dangling '#'
       window.history.pushState(null, '', window.location.pathname + window.location.search);

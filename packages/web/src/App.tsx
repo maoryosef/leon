@@ -1,6 +1,7 @@
 import type { Session } from '@leon/shared';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { ArchiveView } from './components/ArchiveView';
 import { AttentionDock } from './components/AttentionDock';
 import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
@@ -77,7 +78,9 @@ export function App() {
         view={board.view}
       />
 
-      {board.view === 'sessions' ? (
+      {board.view === 'archive' ? (
+        <ArchiveView />
+      ) : board.view === 'sessions' ? (
         <Suspense fallback={null}>
           <SessionsView
             sessions={board.sessions}

@@ -32,6 +32,7 @@ function connectionMeta(connection: ConnectionStatus): { className: string; labe
 const VIEWS: { view: View; label: string }[] = [
   { view: 'board', label: 'BOARD' },
   { view: 'sessions', label: 'SESSIONS' },
+  { view: 'archive', label: 'ARCHIVE' },
 ];
 
 export function Header({

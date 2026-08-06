@@ -1,4 +1,11 @@
-import type { PullRequest, Session, SessionStatus, Task, TaskStatus } from '@leon/shared';
+import type {
+  JiraIssue,
+  PullRequest,
+  Session,
+  SessionStatus,
+  Task,
+  TaskStatus,
+} from '@leon/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteTask, linkSession, refreshJira, reorderTasks, updateTask } from '../lib/api';
@@ -9,6 +16,7 @@ import {
   applyTasks,
   removeTask,
   setOpenSession,
+  setView,
   useBoardState,
 } from '../lib/ws-store';
 import { NewTaskForm } from './NewTaskForm';
@@ -301,12 +309,15 @@ function TaskCard({
   actions,
   onLink,
   onEdit,
+  jiraUrl,
   dnd,
 }: {
   task: Task;
   sessions: Session[];
   prs: PullRequest[];
   assignableTasks: Task[];
+  /** issue URL when the linked key is in the synced list — makes the tag a link */
+  jiraUrl?: string;
   expanded: boolean;
   onToggle: () => void;
   actions: TaskActions;
@@ -386,11 +397,28 @@ function TaskCard({
             >
               {task.title}
             </span>
-            {task.jiraKey && (
-              <span className="shrink-0 border border-line-strong px-1 py-px font-mono text-[9.5px] text-dim">
-                {task.jiraKey}
-              </span>
-            )}
+            {task.jiraKey &&
+              (jiraUrl ? (
+                <a
+                  href={jiraUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  draggable={false}
+                  onClick={(event) => event.stopPropagation()}
+                  title={`Open ${task.jiraKey} in Jira`}
+                  className="flex shrink-0 items-center gap-1 border border-info/50 bg-info/10 px-1 py-px font-mono text-[9.5px] text-info hover:border-info hover:bg-info/20"
+                >
+                  {task.jiraKey}
+                  <span aria-hidden>↗</span>
+                </a>
+              ) : (
+                <span
+                  title={`${task.jiraKey} — not in your synced issues`}
+                  className="shrink-0 border border-info/40 px-1 py-px font-mono text-[9.5px] text-info/80"
+                >
+                  {task.jiraKey}
+                </span>
+              ))}
             {!muted && (
               <button
                 type="button"
@@ -534,11 +562,16 @@ export function TaskRail({
   /** below 1100px the rail is an overlay drawer; this is its open state */
   mobileOpen: boolean;
 }) {
+  const { jiraIssues } = useBoardState();
+  const jiraUrlByKey = useMemo(
+    () => new Map(jiraIssues.map((issue) => [issue.key, issue.url])),
+    [jiraIssues],
+  );
+
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [showClosed, setShowClosed] = useState(false);
   const queryClient = useQueryClient();
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['state'] });
@@ -601,7 +634,8 @@ export function TaskRail({
       tasks.filter((task) => task.status === 'done' || task.status === 'archived').sort(byRailOrder),
     [tasks],
   );
-  const railTasks = showClosed ? [...openTasks, ...closedTasks] : openTasks;
+  // the rail is live work only — done/archived live in the ARCHIVE view
+  const railTasks = openTasks;
   // follow the live task object so the modal reflects renames landing over WS
   const editingTask = tasks.find((task) => task.id === editingTaskId);
 
@@ -752,6 +786,7 @@ export function TaskRail({
                 actions={actions}
                 onLink={handleLink}
                 onEdit={() => setEditingTaskId(task.id)}
+                jiraUrl={task.jiraKey ? jiraUrlByKey.get(task.jiraKey) : undefined}
                 dnd={{
                   dragging: dragId === task.id,
                   onDragStart: () => setDragId(task.id),
@@ -774,10 +809,11 @@ export function TaskRail({
             {closedTasks.length > 0 && (
               <button
                 type="button"
-                onClick={() => setShowClosed((value) => !value)}
+                onClick={() => setView('archive')}
+                title="Done and archived tasks live in their own view"
                 className="mt-1 self-start px-0.5 font-mono text-[10.5px] text-faint hover:text-dim"
               >
-                {showClosed ? '▾ hide' : '▸ show'} done/archived ({closedTasks.length})
+                {closedTasks.length} done/archived ›
               </button>
             )}
           </>
@@ -833,6 +869,21 @@ export function TaskRail({
 /* Leon's agent (it holds the Atlassian auth). Read-only rail section.  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Finished business. Jira's Done category is the first signal, but this
+ * workflow parks completed work in custom statuses that still report the
+ * "To Do" category ("Merged to Main", "Canceled") — so the status name is
+ * checked too.
+ */
+function isJiraDone(issue: JiraIssue): boolean {
+  if ((issue.statusCategory ?? '').toLowerCase() === 'done') return true;
+  const status = issue.status.trim().toLowerCase();
+  return (
+    /^(done|closed|resolved|cancell?ed|won'?t do|rejected)$/.test(status) ||
+    status.includes('merged')
+  );
+}
+
 function jiraDot(statusCategory: string | null | undefined): string {
   switch ((statusCategory ?? '').toLowerCase()) {
     case 'in progress':
@@ -845,7 +896,18 @@ function jiraDot(statusCategory: string | null | undefined): string {
 }
 
 function JiraSection() {
-  const { jiraIssues } = useBoardState();
+  const { jiraIssues: allIssues, tasks } = useBoardState();
+  // done/closed issues are finished business — keep them out of the rail
+  const jiraIssues = useMemo(() => allIssues.filter((issue) => !isJiraDone(issue)), [allIssues]);
+  const hiddenDone = allIssues.length - jiraIssues.length;
+  /** key → the task tracking it, so the list shows what's already on the board */
+  const linkedByKey = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const task of tasks) {
+      if (task.jiraKey && task.status !== 'archived') map.set(task.jiraKey, task);
+    }
+    return map;
+  }, [tasks]);
   // collapsed by default — the rail belongs to tasks; Jira is a lookup
   const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -867,7 +929,10 @@ function JiraSection() {
           onClick={() => setOpen((value) => !value)}
           className="flex flex-1 items-center gap-2 text-left hover:text-dim"
         >
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint select-none">
+          <span
+            title={hiddenDone > 0 ? `${hiddenDone} done/closed issue(s) hidden` : undefined}
+            className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint select-none"
+          >
             Jira · {jiraIssues.length}
           </span>
           <span className="ml-auto font-mono text-[10px] text-faint">{open ? '▾' : '▸'}</span>
@@ -891,22 +956,39 @@ function JiraSection() {
               {refreshing ? 'Leon is syncing…' : 'nothing synced yet — hit ↻'}
             </p>
           ) : (
-            jiraIssues.map((issue) => (
-              <a
-                key={issue.key}
-                href={issue.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={`${issue.summary}\n${issue.status}${issue.priority ? ` · ${issue.priority}` : ''}`}
-                className="group flex items-center gap-2 border-b border-line/60 px-1.5 py-1.5 last:border-b-0 hover:bg-raise"
-              >
-                <span className={`size-1.5 shrink-0 rounded-full ${jiraDot(issue.statusCategory)}`} />
-                <span className="shrink-0 font-mono text-[10.5px] text-dim group-hover:text-txt">
-                  {issue.key}
-                </span>
-                <span className="truncate text-[11.5px] text-dim">{issue.summary}</span>
-              </a>
-            ))
+            jiraIssues.map((issue) => {
+              const linked = linkedByKey.get(issue.key);
+              return (
+                <a
+                  key={issue.key}
+                  href={issue.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`${issue.summary}\n${issue.status}${issue.priority ? ` · ${issue.priority}` : ''}${
+                    linked ? `\n\nlinked to task: ${linked.title}` : ''
+                  }`}
+                  className="group flex items-center gap-2 border-b border-line/60 px-1.5 py-1.5 last:border-b-0 hover:bg-raise"
+                >
+                  <span
+                    className={`size-1.5 shrink-0 rounded-full ${jiraDot(issue.statusCategory)}`}
+                  />
+                  <span className="shrink-0 font-mono text-[10.5px] text-dim group-hover:text-txt">
+                    {issue.key}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-dim">
+                    {issue.summary}
+                  </span>
+                  {linked && (
+                    <span
+                      aria-label={`linked to task ${linked.title}`}
+                      className="shrink-0 border border-ok/50 px-1 font-mono text-[9px] leading-[1.4] text-ok"
+                    >
+                      ✓ task
+                    </span>
+                  )}
+                </a>
+              );
+            })
           )}
         </div>
       )}
