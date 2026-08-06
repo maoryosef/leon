@@ -36,19 +36,23 @@ and (eventually) helps you drive them, with the personality of Leon Black.
 ### TL;DR — one command
 
 ```sh
-pnpm install && pnpm start          # build web UI + run the daemon serving it
-node packages/cli/bin/leon.js ui    # (other terminal) open the board in your browser
+pnpm install && pnpm start   # build web UI + run the daemon serving it
+pnpm open:ui                 # (other terminal) open the board in your browser
 ```
 
 `pnpm start` is idempotent — if a healthy daemon already holds the port it says
 so and exits 0. Use `pnpm restart` to stop it and start fresh (e.g. after
 pulling new code), and `pnpm stop` to just stop it.
 
+`pnpm open:ui` opens `http://127.0.0.1:5366/?token=…` with the token from
+`~/.leon/config.toml`. The browser stores it and drops it from the address bar,
+so re-run it whenever the token changes.
+
 For development, one command runs everything in watch mode (daemon via tsx
 watch + web via vite with hot reload):
 
 ```sh
-pnpm dev                            # then open via `leon ui` once, or :5173 with the token
+pnpm dev                            # then `pnpm open:ui` once, or :5173 with the token
 ```
 
 ### Prerequisites

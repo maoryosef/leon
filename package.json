@@ -15,6 +15,7 @@
     "start": "pnpm --filter @leon/web build && pnpm --filter @leon/daemon start",
     "restart": "node packages/cli/bin/leon.js stop && pnpm start",
     "stop": "node packages/cli/bin/leon.js stop",
+    "open:ui": "node packages/cli/bin/leon.js ui",
     "dev": "pnpm --parallel --filter @leon/daemon --filter @leon/web dev",
     "dev:daemon": "pnpm --filter @leon/daemon dev",
     "dev:web": "pnpm --filter @leon/web dev"
