@@ -76,6 +76,29 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Desktop shell (Electron). The window is frameless, so the header has
+ * to do two jobs the OS title bar normally does: leave room for the
+ * traffic lights, and give the window something to drag by. Unlayered
+ * so it outranks the header's Tailwind padding utility.
+ *
+ * The padding is in the app's own pixels — #root scales everything by
+ * 1.12, so 68px here clears ~76 real ones, which is where the traffic
+ * lights end.
+ * ------------------------------------------------------------------ */
+html[data-desktop] .app-header {
+  padding-left: 68px;
+  -webkit-app-region: drag;
+}
+
+/* anything clickable has to opt back out, or the drag region eats it */
+html[data-desktop] .app-header button,
+html[data-desktop] .app-header a,
+html[data-desktop] .app-header input,
+html[data-desktop] .app-header select {
+  -webkit-app-region: no-drag;
+}
+
 /* status dot pulse for 'working' */
 @keyframes leon-throb {
   0%,

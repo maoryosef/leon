@@ -1,0 +1,38 @@
+appId: ai.accomplish.leon
+productName: Leon
+copyright: Leon
+
+directories:
+  output: release
+  buildResources: build
+
+# The shell only: dist/ is the compiled main process. The daemon is not
+# bundled — it runs from the repo checkout under the system Node, because
+# better-sqlite3 and node-pty are built for that ABI, not Electron's.
+files:
+  - dist/**
+  - package.json
+  - '!**/*.map'
+
+extraResources:
+  - from: ../web/public/leon.png
+    to: leon.png
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dir
+      arch:
+        - arm64
+  # a local dev tool — no signing identity, no notarization
+  identity: null
+
+win:
+  icon: build/icon.png
+  target: portable
+
+linux:
+  icon: build/icon.png
+  category: Development
+  target: AppImage

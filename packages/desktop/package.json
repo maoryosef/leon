@@ -1,0 +1,24 @@
+{
+  "name": "@leon/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "pnpm build && node scripts/dev-app.mjs",
+    "icons": "electron scripts/make-icons.mjs",
+    "dist": "pnpm build && pnpm icons && electron-builder --config.extraMetadata.leonRepo=\"$(cd ../.. && pwd)\"",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "catalog:"
+  }
+}

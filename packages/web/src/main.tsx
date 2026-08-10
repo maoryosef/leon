@@ -7,6 +7,15 @@ import { initToken } from './lib/token';
 
 initToken();
 
+/**
+ * Inside the desktop shell the window has no title bar: the header has to
+ * clear the traffic lights and act as the drag handle. index.css keys that off
+ * this attribute so the browser build is untouched.
+ */
+if (navigator.userAgent.includes('Electron')) {
+  document.documentElement.dataset.desktop = '';
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

@@ -33,7 +33,17 @@ and (eventually) helps you drive them, with the personality of Leon Black.
 
 ## Running the project
 
-### TL;DR — one command
+### TL;DR — the desktop app
+
+```sh
+pnpm install && pnpm desktop   # Leon in its own window, daemon and all
+```
+
+One command, one window, the avatar in the Dock. The app starts the daemon
+itself (or attaches to one already running in tmux) and opens the board. See
+[Desktop app](#desktop-app) for packaging it into a real `Leon.app`.
+
+### Or run it headless, in the browser
 
 ```sh
 pnpm install && pnpm start   # build web UI + run the daemon serving it
@@ -155,6 +165,65 @@ inside tmux (no nesting).
 Tip: `pnpm link --global packages/cli` (or an alias) gives you a bare `leon`
 command.
 
+### Desktop app
+
+Leon runs as a native window with the avatar as its icon.
+
+```sh
+pnpm desktop        # build the web UI, then open the app
+pnpm desktop:dist   # package release/mac-arm64/Leon.app (double-clickable)
+```
+
+The Electron shell is thin on purpose. It:
+
+- **attaches to a running daemon** if one already owns the port (your tmux
+  daemon keeps running and outlives the app), otherwise **starts one** and
+  stops it again on quit;
+- **runs the daemon as a child process under your system Node**, not inside
+  Electron — `better-sqlite3` and `node-pty` are compiled for the system ABI,
+  so this avoids rebuilding them against Electron's;
+- **asks your login shell for `PATH`** before spawning, because an app
+  launched from the Dock inherits a bare one and the daemon needs `tmux`,
+  `gh` and `claude`;
+- opens PR/Jira links in your real browser, and remembers window bounds in
+  `~/.leon/desktop-window.json`.
+
+The renderer is the same web app the browser gets, with no Node access — it
+talks to the daemon over HTTP/WS exactly as before.
+
+**Icons** are built from `packages/web/public/leon.png` by
+`scripts/make-icons.mjs`, which shapes it to Apple's macOS template so it sits
+naturally next to other apps: an 824px body centred on a 1024px canvas (the
+margin is what makes every dock icon look the same size), masked to the
+squircle, with a soft drop shadow baked in — macOS adds none of its own. It
+also crops in on the face, since the avatar is framed for a 22px header chip
+and reads too small in a dock tile; tune `FOCUS` / `ZOOM` at the top of the
+script. Swap `leon.png` and run `pnpm --filter @leon/desktop icons` to
+regenerate `build/icon.png` and `build/icon.icns`.
+
+The script runs under Electron, not node — `nativeImage` is the only image
+codec in the toolchain, and masking needs raw pixels.
+
+**Why `pnpm desktop` copies the Electron bundle.** Running `electron
+dist/main.js` launches Electron's *own* `Electron.app`, and macOS labels an
+app in the Dock and ⌘-Tab by its bundle **directory name** — so it shows
+"Electron" no matter what `CFBundleName` says, and `app.setName()` can't
+reach it either (that only renames Electron-level things like the userData
+dir). `scripts/dev-app.mjs` therefore keeps a branded copy at
+`.devapp/Leon.app` — patched name, its own bundle id, the app icon — and
+launches that. The copy is ~270MB, made once and refreshed only when Electron
+or the icon changes; delete `.devapp/` to force a rebuild.
+
+The executable inside keeps its original name so the bundle's code signature
+stays valid, which means `ps` and Activity Monitor still say Electron. Only
+the packaged app gets a binary named `Leon` as well.
+
+**The packaged app still needs the repo** — it runs the daemon from your
+checkout. `pnpm desktop:dist` bakes the current path into the bundle; override
+with `LEON_REPO=/path/to/leon`, and `LEON_NODE=/path/to/node` if Node can't be
+found. Both failures show a dialog saying exactly that. The bundle is
+unsigned (`identity: null`) — it's a local tool.
+
 ### Tests & checks
 
 ```sh
@@ -169,6 +238,9 @@ pnpm build                          # typecheck everywhere + vite build
   (postinstall re-chmods node-pty's `spawn-helper`).
 - **401 in the browser** — relaunch via `node packages/cli/bin/leon.js ui`;
   the token in localStorage is missing/stale.
+- **Desktop app says the daemon exited** — the dialog carries the daemon's
+  last output; the usual causes are a stale build (`pnpm install`) or the port
+  being held by something that isn't Leon.
 - **No sessions appear** — check `tmux list-panes -a` shows panes whose
   command is `claude`; Leon polls every 2s and keys on the process tree.
 - **Port in use** — edit `port` under `[server]` in `~/.leon/config.toml`.
@@ -184,6 +256,7 @@ pnpm build                          # typecheck everywhere + vite build
 | `packages/daemon` | fastify: REST + `/hooks` receiver + `/ws/events` + `/ws/term` (node-pty) |
 | `packages/web`    | react board: tasks / inbox / session cards / xterm peek & attach |
 | `packages/cli`    | `leon daemon · ui · status · attach · install-hooks` |
+| `packages/desktop`| electron shell: window, dock icon, daemon supervision |
 | `personalities/`  | swappable voice prompts for the Leon agent (Phase 2) |
 
 State lives in `~/.leon/` (config.toml with the auth token, leon.db).

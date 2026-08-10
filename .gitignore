@@ -5,3 +5,7 @@ dist/
 .env
 *.log
 .remember/
+# desktop app: generated icons, the branded dev bundle, packaged output
+packages/desktop/build/
+packages/desktop/.devapp/
+packages/desktop/release/
