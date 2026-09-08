@@ -1,4 +1,5 @@
 import type {
+  AgentStats,
   Approval,
   UpdateScratchpadInput,
   ChatMessage,
@@ -10,6 +11,7 @@ import type {
   Task,
   UpdateTaskInput,
   JiraIssue,
+  Usage,
 } from '@leon/shared';
 import { useSyncExternalStore } from 'react';
 import { getToken } from './token';
@@ -20,6 +22,8 @@ export interface StateResponse {
   pullRequests: PullRequest[];
   approvals: Approval[];
   jiraIssues?: JiraIssue[];
+  usage?: Usage | null;
+  agentStats?: AgentStats | null;
 }
 
 /* ------------------------------------------------------------------ */

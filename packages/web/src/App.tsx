@@ -5,6 +5,7 @@ import { ArchiveView } from './components/ArchiveView';
 import { AttentionDock } from './components/AttentionDock';
 import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
+import { StatusBar } from './components/StatusBar';
 import { TaskRail } from './components/TaskRail';
 
 // xterm is heavy — split both terminal surfaces out so the console loads lean.
@@ -138,6 +139,8 @@ export function App() {
           </button>
         </div>
       )}
+
+      <StatusBar />
 
       {openSession && (
         <Suspense fallback={null}>

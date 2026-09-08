@@ -21,6 +21,23 @@ and (eventually) helps you drive them, with the personality of Leon Black.
   flapping). Toggle via `[notifications] desktop / chat` in
   `~/.leon/config.toml`.
 
+- **Status line**: a rail along the bottom of the board with the numbers that
+  decide how much runway you have.
+  - *Plan usage* — how much of each rate-limit pool is gone (all-models
+    weekly, model-scoped weekly, and the rolling 5-hour session pool) plus
+    the countdown to the weekly reset. The daemon polls the same endpoint
+    Claude Code's own status line uses (every 5 min; `[usage] enabled /
+    pollMs` in `~/.leon/config.toml`), reading the OAuth token Claude Code
+    already stores — no changes to your Claude settings, and it keeps working
+    when no session is running.
+  - *Leon's own model, context and spend* — the model actually answering
+    (reported per message by the SDK, not the configured alias), how full his
+    conversation's context
+    window is (amber past 70%, red past 90%, since a full window means a
+    compact) and what that conversation has cost, taken from the Agent SDK's
+    result messages. The cost is banked in the kv store, so it survives
+    daemon restarts the same way the conversation does.
+
 - **Discovery**: finds every `claude` process in every tmux pane, no setup.
 - **Status**: each session is `working / waiting_input / waiting_permission /
   idle_done / dead`, derived from three signal tiers (Claude Code hooks →

@@ -1,7 +1,8 @@
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ChatMessage } from '@leon/shared';
+import type { AgentStats, ChatMessage } from '@leon/shared';
 import type { LeonConfig } from '../config.js';
 import type { EventBus } from '../events.js';
+import { nowIso } from '../util/time.js';
 import type { ApprovalService } from '../services/approval-service.js';
 import type { ChatService } from '../services/chat-service.js';
 import { composeSystemPrompt } from './prompt.js';
@@ -14,6 +15,8 @@ import {
 import { loadUserMcpServer } from './user-mcp.js';
 
 const KV_AGENT_SESSION = 'agent_session_id';
+/** cost survives daemon restarts, because the conversation does */
+const KV_AGENT_COST = 'agent_cost_usd';
 
 /**
  * Leon's brain: one long-lived Agent SDK conversation fed by a streaming
@@ -35,6 +38,31 @@ export class LeonAgent {
     private toolDeps: ToolDeps,
   ) {
     this.agentSessionId = this.chat.getKv(KV_AGENT_SESSION) ?? '';
+    this.costBanked = Number(this.chat.getKv(KV_AGENT_COST) ?? 0) || 0;
+  }
+
+  /* ---- Leon's own context + spend, for the board's status line ---------- */
+
+  private contextTokens: number | null = null;
+  private contextWindow: number | null = null;
+  private model: string | null = null;
+  /** cost of finished counter runs; the SDK's total resets when a query does */
+  private costBanked: number;
+  private costCurrent = 0;
+
+  stats(): AgentStats {
+    return {
+      contextTokens: this.contextTokens,
+      contextWindow: this.contextWindow,
+      costUsd: this.costBanked + this.costCurrent,
+      model: this.model,
+      updatedAt: nowIso(),
+    };
+  }
+
+  private publishStats(): void {
+    this.chat.setKv(KV_AGENT_COST, String(this.costBanked + this.costCurrent));
+    this.bus.emit({ type: 'agent.stats', stats: this.stats() });
   }
 
   start(): void {
@@ -98,11 +126,14 @@ export class LeonAgent {
    */
   injectStatusDigest(digest: string): void {
     const text =
-      `[automated session-status update — the user did NOT send this and cannot see it]\n${digest}\n\n` +
+      `[automated update — the user did NOT send this and cannot see it]\n${digest}\n\n` +
       `Report this to the user in ONE short message — they explicitly want to know when a session ` +
-      `finishes its work, waits on them, or dies. Include what to do next if obvious (answer the ` +
-      `prompt, review the output, restart). Reply with exactly SKIP only if this adds nothing new — ` +
-      `you already told them about this exact state, or it's a transient flap that reversed itself.`;
+      `finishes its work, waits on them, or dies, and when one of their PRs gets a comment, fails ` +
+      `checks, is approved, gets changes requested, or merges. Include what to do next if obvious ` +
+      `(answer the prompt, review the output, restart, go merge it). If they asked you to watch ` +
+      `this particular thing, this is the moment you were waiting for — lead with that. Reply with ` +
+      `exactly SKIP only if this adds nothing new — you already told them about this exact state, ` +
+      `or it's a transient flap that reversed itself.`;
     this.queue.push({
       type: 'user',
       message: { role: 'user', content: text },
@@ -205,6 +236,16 @@ export class LeonAgent {
           this.chat.setKv(KV_AGENT_SESSION, msg.session_id);
         }
       } else if (msg.type === 'assistant') {
+        // what the model actually carried into this request is the honest
+        // measure of context: fresh input plus everything read from cache
+        const usage = msg.message.usage;
+        if (usage) {
+          this.contextTokens =
+            (usage.input_tokens ?? 0) +
+            (usage.cache_read_input_tokens ?? 0) +
+            (usage.cache_creation_input_tokens ?? 0);
+        }
+        if (msg.message.model) this.model = msg.message.model;
         for (const block of msg.message.content) {
           if (block.type === 'text' && block.text.trim()) {
             if (block.text.trim() === 'SKIP') continue; // silent digest ack
@@ -219,6 +260,16 @@ export class LeonAgent {
           }
         }
       } else if (msg.type === 'result') {
+        // total_cost_usd accumulates within one query() run and starts over
+        // when the loop restarts, so treat it as a counter that can reset
+        // and bank the previous run rather than double-counting or losing it
+        const raw = typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : 0;
+        if (raw < this.costCurrent) this.costBanked += this.costCurrent;
+        this.costCurrent = raw;
+        for (const entry of Object.values(msg.modelUsage ?? {})) {
+          if (entry?.contextWindow) this.contextWindow = entry.contextWindow;
+        }
+        this.publishStats();
         this.bus.emit({ type: 'chat.status', state: 'idle', detail: null });
       }
     }

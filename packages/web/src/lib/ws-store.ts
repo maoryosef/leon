@@ -1,5 +1,14 @@
 import { WsEvent } from '@leon/shared';
-import type { Approval, ChatMessage, JiraIssue, PullRequest, Session, Task } from '@leon/shared';
+import type {
+  AgentStats,
+  Approval,
+  ChatMessage,
+  JiraIssue,
+  PullRequest,
+  Session,
+  Task,
+  Usage,
+} from '@leon/shared';
 import { useSyncExternalStore } from 'react';
 import type { StateResponse } from './api';
 import { wsUrl } from './token';
@@ -25,6 +34,10 @@ export interface BoardState {
   sessions: Session[];
   pullRequests: PullRequest[];
   jiraIssues: JiraIssue[];
+  /** plan rate limits for the status line (null until the first poll lands) */
+  usage: Usage | null;
+  /** Leon's own context + spend (null until his first turn lands) */
+  agentStats: AgentStats | null;
   /** last scratchpad state pushed over WS (null until first update) */
   scratchpad: { content: string; updatedAt: string; origin: 'user' | 'leon' } | null;
   /** Pending approvals only — resolved ones are removed as they resolve. */
@@ -53,6 +66,8 @@ let state: BoardState = {
   sessions: [],
   pullRequests: [],
   jiraIssues: [],
+  usage: null,
+  agentStats: null,
   scratchpad: null,
   approvals: [],
   lastApprovalFailure: null,
@@ -197,6 +212,8 @@ export function applyEvent(event: WsEvent): void {
         pullRequests: event.pullRequests,
         approvals: event.approvals,
         jiraIssues: event.jiraIssues ?? state.jiraIssues,
+        usage: event.usage ?? state.usage,
+        agentStats: event.agentStats ?? state.agentStats,
         loaded: true,
       });
       break;
@@ -218,6 +235,12 @@ export function applyEvent(event: WsEvent): void {
         ...state,
         scratchpad: { content: event.content, updatedAt: event.updatedAt, origin: event.origin },
       });
+      break;
+    case 'agent.stats':
+      setState({ ...state, agentStats: event.stats });
+      break;
+    case 'usage.updated':
+      setState({ ...state, usage: event.usage });
       break;
     case 'jira.synced':
       setState({ ...state, jiraIssues: event.issues });

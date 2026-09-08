@@ -25,6 +25,18 @@ export function useNow(intervalMs = 30_000): number {
   return now;
 }
 
+/** Countdown to a future instant: "3d", "6h", "42m", "<1m"; "—" once past. */
+export function timeUntil(iso: string, now: number = Date.now()): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '—';
+  const minutes = Math.floor((then - now) / 60_000);
+  if (minutes <= 0) return '—';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 /** "14:32" — clock time for chat messages. */
 export function clockTime(iso: string): string {
   const d = new Date(iso);

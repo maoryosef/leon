@@ -12,6 +12,7 @@ import { PrPoller } from './services/pr-service.js';
 import { ScratchpadService } from './services/scratchpad-service.js';
 import { SessionService } from './services/session-service.js';
 import { TaskService } from './services/task-service.js';
+import { UsageService } from './services/usage-service.js';
 import { Tmux } from './tmux/tmux.js';
 
 export interface LeonCore {
@@ -27,6 +28,7 @@ export interface LeonCore {
   approvals: ApprovalService;
   jira: JiraService;
   scratchpad: ScratchpadService;
+  usage: UsageService;
   agent: LeonAgent;
   notifications: NotificationService;
   start(): Promise<void>;
@@ -48,6 +50,7 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
   const approvals = new ApprovalService(db, bus);
   const jira = new JiraService(db, bus, tasks);
   const scratchpad = new ScratchpadService(db, bus);
+  const usage = new UsageService(bus, config.usage.pollMs);
   const agent = new LeonAgent(config, bus, chat, approvals, {
     sessions,
     tasks,
@@ -75,17 +78,20 @@ export function createCore(config: LeonConfig = loadConfig()): LeonCore {
     approvals,
     jira,
     scratchpad,
+    usage,
     agent,
     notifications,
     async start() {
       await monitor.start();
       prs.start();
       approvals.start();
+      if (config.usage.enabled) usage.start();
       agent.start();
       notifications.start();
     },
     stop() {
       notifications.stop();
+      usage.stop();
       agent.stop();
       approvals.stop();
       monitor.stop();

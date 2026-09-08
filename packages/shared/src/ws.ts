@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import { Approval, ChatMessage, JiraIssue, PullRequest, Session, Task } from './domain.js';
+import {
+  AgentStats,
+  Approval,
+  ChatMessage,
+  JiraIssue,
+  PullRequest,
+  Session,
+  Task,
+  Usage,
+} from './domain.js';
 
 /**
  * Events pushed by the daemon over /ws/events. Clients receive a full
@@ -13,8 +22,12 @@ export const WsEvent = z.discriminatedUnion('type', [
     pullRequests: z.array(PullRequest),
     approvals: z.array(Approval),
     jiraIssues: z.array(JiraIssue).optional(),
+    usage: Usage.nullish(),
+    agentStats: AgentStats.nullish(),
   }),
   z.object({ type: z.literal('jira.synced'), issues: z.array(JiraIssue) }),
+  z.object({ type: z.literal('usage.updated'), usage: Usage }),
+  z.object({ type: z.literal('agent.stats'), stats: AgentStats }),
   z.object({
     type: z.literal('scratchpad.updated'),
     content: z.string(),

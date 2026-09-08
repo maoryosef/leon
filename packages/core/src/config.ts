@@ -29,6 +29,14 @@ const ConfigSchema = z.object({
       model: z.string().default('sonnet'),
     })
     .prefault({}),
+  usage: z
+    .object({
+      // plan limits shown in the board's status line, polled from the same
+      // endpoint Claude Code's own status line uses
+      enabled: z.boolean().default(true),
+      pollMs: z.number().int().default(300_000),
+    })
+    .prefault({}),
   notifications: z
     .object({
       desktop: z.boolean().default(true), // macOS toast via osascript

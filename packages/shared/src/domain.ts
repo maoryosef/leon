@@ -136,6 +136,47 @@ export const JiraIssue = z.object({
 });
 export type JiraIssue = z.infer<typeof JiraIssue>;
 
+/**
+ * One of the plan's rate limits, as reported by Claude's OAuth usage endpoint:
+ * the rolling 5-hour session pool, the all-models weekly pool, and (on plans
+ * that have one) a weekly pool scoped to a single model.
+ */
+export const UsageLimit = z.object({
+  /** 'session' | 'weekly_all' | 'weekly_scoped' — passthrough, new kinds appear */
+  kind: z.string(),
+  /** 'session' | 'weekly' */
+  group: z.string().nullish(),
+  /** what to call it in the UI, e.g. "weekly" or "Fable weekly" */
+  label: z.string(),
+  /** percent of the pool consumed, 0-100 */
+  percent: z.number(),
+  severity: z.enum(['normal', 'warning', 'critical']).catch('normal'),
+  /** ISO 8601; null when the pool has never been touched */
+  resetsAt: z.string().nullish(),
+});
+export type UsageLimit = z.infer<typeof UsageLimit>;
+
+export const Usage = z.object({
+  limits: z.array(UsageLimit),
+  fetchedAt: z.string(),
+  /** set when the last poll failed; the limits are then the last good ones */
+  error: z.string().nullish(),
+});
+export type Usage = z.infer<typeof Usage>;
+
+/** Leon's own conversation: how full its context is and what it has cost. */
+export const AgentStats = z.object({
+  /** tokens the model carried into its most recent request (input + cache) */
+  contextTokens: z.number().nullish(),
+  /** the model's context window, as the SDK reported it */
+  contextWindow: z.number().nullish(),
+  /** cumulative USD for this Leon session, surviving daemon restarts */
+  costUsd: z.number(),
+  model: z.string().nullish(),
+  updatedAt: z.string(),
+});
+export type AgentStats = z.infer<typeof AgentStats>;
+
 export const ChatMessage = z.object({
   id: z.string(),
   agentSessionId: z.string(), // '' until the agent session is established
