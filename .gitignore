@@ -9,3 +9,5 @@ dist/
 packages/desktop/build/
 packages/desktop/.devapp/
 packages/desktop/release/
+# native avatar app output
+native/build/

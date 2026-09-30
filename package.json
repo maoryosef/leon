@@ -18,6 +18,7 @@
     "open:ui": "node packages/cli/bin/leon.js ui",
     "desktop": "pnpm --filter @leon/web build && pnpm --filter @leon/desktop start",
     "desktop:dist": "pnpm --filter @leon/web build && pnpm --filter @leon/desktop dist",
+    "avatar": "sh native/build.sh && open native/build/Leon.app",
     "dev": "pnpm --parallel --filter @leon/daemon --filter @leon/web dev",
     "dev:daemon": "pnpm --filter @leon/daemon dev",
     "dev:web": "pnpm --filter @leon/web dev"

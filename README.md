@@ -241,6 +241,25 @@ with `LEON_REPO=/path/to/leon`, and `LEON_NODE=/path/to/node` if Node can't be
 found. Both failures show a dialog saying exactly that. The bundle is
 unsigned (`identity: null`) — it's a local tool.
 
+### Native avatar (Superset alerts)
+
+```sh
+pnpm avatar   # build native/build/Leon.app (Swift, no Node) and open it
+```
+
+Leon sits in the bottom-right corner, above all windows and on every Space.
+A bubble pops up when a Superset agent finishes a turn, fails, or waits on
+you. The bubble shows the workspace and the agent's last words. Click a
+bubble to open its workspace in Superset. The ring turns orange and pulses
+while an agent waits on you.
+
+- Click Leon for a summary. Hover and press **–** to minimize him.
+- Right-click Leon to restore, clear alerts, or quit. He has no Dock icon.
+- It needs no daemon. It reads Superset's host DB
+  (`~/.superset/host/*/host.db`) read-only every 1.5 s, and reads previews
+  from `~/.claude/projects`. That DB is internal to Superset, so a Superset
+  update can break it.
+
 ### Tests & checks
 
 ```sh
