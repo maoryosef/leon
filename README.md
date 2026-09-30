@@ -255,6 +255,15 @@ while an agent waits on you.
 
 - Click Leon for a summary. Hover and press **–** to minimize him.
 - Right-click Leon to restore, clear alerts, or quit. He has no Dock icon.
+- Right-click **Keep Mac awake** to stop idle sleep, like `caffeinate -i`.
+  A coffee cup on Leon shows it is on. Click the cup to turn it off. It turns
+  off when Leon quits.
+- Right-click **Stay awake with lid closed** to turn off all sleep, lid close
+  included (`pmset -a disablesleep 1`). It needs your admin password, and a
+  glowing purple dashed ring and a red laptop badge show it is on. Click the
+  badge to turn it off. The setting outlives Leon, so quitting Leon
+  from its menu turns it off again. A sudoers rule for `/usr/bin/pmset` skips
+  the password prompt.
 - It needs no daemon. It reads Superset's host DB
   (`~/.superset/host/*/host.db`) read-only every 1.5 s, and reads previews
   from `~/.claude/projects`. That DB is internal to Superset, so a Superset

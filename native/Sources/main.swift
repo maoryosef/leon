@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.pwr_mgt
 import SwiftUI
 
 struct Alert: Identifiable, Equatable {
@@ -34,6 +35,11 @@ final class AvatarModel: ObservableObject {
     @Published var alerts: [Alert] = []
     @Published var minimized = false
     @Published var note: String?
+    @Published var keepAwake = false {
+        didSet { holdSleepAssertion(keepAwake) }
+    }
+    private var sleepAssertion: IOPMAssertionID = 0
+    @Published private(set) var lidAwake = false
     var working = 0
     var onHitRegionsChange: (() -> Void)?
     var hitRegions: [String: CGRect] = [:] {
@@ -51,6 +57,60 @@ final class AvatarModel: ObservableObject {
         } else if !raised.isEmpty {
             NSSound(named: "Pop")?.play()
         }
+    }
+
+    /// Same as `caffeinate -i`: idle system sleep is blocked, the display may
+    /// still sleep. macOS drops the assertion if Leon quits.
+    private func holdSleepAssertion(_ hold: Bool) {
+        if hold, sleepAssertion == 0 {
+            let result = IOPMAssertionCreateWithName(
+                kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                "Leon is keeping the Mac awake" as CFString,
+                &sleepAssertion
+            )
+            if result != kIOReturnSuccess { keepAwake = false }
+        } else if !hold, sleepAssertion != 0 {
+            IOPMAssertionRelease(sleepAssertion)
+            sleepAssertion = 0
+        }
+    }
+
+    /// `pmset disablesleep` blocks every sleep, lid close included. It needs
+    /// root and outlives Leon, so quitting turns it off again.
+    func setLidAwake(_ on: Bool) {
+        DispatchQueue.global().async { [weak self] in self?.applyLidAwake(on) }
+    }
+
+    func applyLidAwake(_ on: Bool) {
+        let command = ["/usr/bin/pmset", "-a", "disablesleep", on ? "1" : "0"]
+        if Self.run("/usr/bin/sudo", ["-n"] + command).status != 0 {
+            let script = "do shell script \"\(command.joined(separator: " "))\" with prompt "
+                + "\"Leon needs your password to change sleep settings.\" with administrator privileges"
+            Self.run("/usr/bin/osascript", ["-e", script])
+        }
+        refreshLidAwake()
+    }
+
+    func refreshLidAwake() {
+        let on = Self.run("/usr/bin/pmset", ["-g"]).output.split(separator: "\n").contains {
+            $0.split(whereSeparator: \.isWhitespace) == ["SleepDisabled", "1"]
+        }
+        DispatchQueue.main.async { self.lidAwake = on }
+    }
+
+    @discardableResult
+    private static func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return (-1, "") }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return (process.terminationStatus, output)
     }
 
     func dismiss(_ alert: Alert) {
@@ -71,9 +131,11 @@ final class AvatarModel: ObservableObject {
         case (_, 0): "\(working) agent\(working == 1 ? "" : "s") working. Nothing needs you."
         default: "\(waiting) waiting on you, \(working) working."
         }
-        withAnimation { note = text }
+        let full = lidAwake ? "\(text) Sleep is off, even with the lid closed."
+            : keepAwake ? "\(text) Keeping the Mac awake." : text
+        withAnimation { note = full }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-            if self?.note == text { withAnimation { self?.note = nil } }
+            if self?.note == full { withAnimation { self?.note = nil } }
         }
     }
 }
@@ -148,10 +210,23 @@ struct Face: View {
                 .hitRegion("face", model)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(ring, lineWidth: model.minimized ? 2 : 3))
+                .background {
+                    if model.lidAwake {
+                        Circle().fill(Color.purple).padding(-4).blur(radius: 6)
+                    }
+                }
+                .overlay {
+                    if model.lidAwake {
+                        Circle()
+                            .stroke(Color.purple, style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                            .padding(model.minimized ? -3 : -5)
+                    }
+                }
                 .scaleEffect(pulse(at: context.date))
         }
             .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
             .overlay(alignment: .topTrailing) { badge }
+            .overlay(alignment: .bottomLeading) { awakeIndicator }
             .overlay(alignment: .topLeading) {
                 if hovering && !model.minimized {
                     Button { withAnimation(.spring(duration: 0.2)) { model.minimized = true } } label: {
@@ -169,10 +244,43 @@ struct Face: View {
             }
             .contextMenu {
                 Button(model.minimized ? "Restore" : "Minimize") { withAnimation(.spring(duration: 0.2)) { model.minimized.toggle() } }
+                Toggle("Keep Mac awake", isOn: $model.keepAwake)
+                Toggle("Stay awake with lid closed", isOn: Binding(
+                    get: { model.lidAwake },
+                    set: { model.setLidAwake($0) }
+                ))
                 Button("Clear alerts") { withAnimation { model.alerts = [] } }.disabled(model.alerts.isEmpty)
                 Divider()
                 Button("Quit Leon") { NSApp.terminate(nil) }
             }
+    }
+
+    private var awakeIndicator: some View {
+        HStack(spacing: 2) {
+            if model.lidAwake {
+                pip("laptopcomputer", .red, help: "Sleep is off, even with the lid closed. Click to turn it off.") {
+                    model.setLidAwake(false)
+                }
+            }
+            if model.keepAwake {
+                pip("cup.and.saucer.fill", .brown, help: "Keeping the Mac awake. Click to allow sleep.") {
+                    model.keepAwake = false
+                }
+            }
+        }
+        .offset(x: -4, y: 4)
+    }
+
+    private func pip(_ symbol: String, _ color: Color, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: model.minimized ? 7 : 10, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(model.minimized ? 3 : 5)
+                .background(Circle().fill(color))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     @ViewBuilder private var badge: some View {
@@ -276,6 +384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.passClicksOutsideContent()
             return event
         }
+        DispatchQueue.global().async { [model] in model.refreshLidAwake() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.place() }
@@ -294,6 +403,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSRect(x: screen.maxX - size.width, y: screen.minY, width: size.width, height: size.height),
             display: true
         )
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if model.lidAwake { model.applyLidAwake(false) }
+        return .terminateNow
     }
 
     private func passClicksOutsideContent() {
