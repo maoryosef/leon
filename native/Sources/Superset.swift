@@ -62,8 +62,20 @@ struct Tracker {
     }
 }
 
+struct Row {
+    fileprivate let statement: OpaquePointer?
+
+    func text(_ column: Int32) -> String? {
+        sqlite3_column_text(statement, column).map { String(cString: $0) }
+    }
+
+    func int(_ column: Int32) -> Int64 {
+        sqlite3_column_int64(statement, column)
+    }
+}
+
 enum SupersetDB {
-    private static let query = """
+    private static let bindingsQuery = """
         select b.terminal_id, b.workspace_id, b.agent_session_id, b.last_event_type, b.last_event_at,
                case when coalesce(w.name, '') in ('', 'local') then coalesce(w.branch, '') else w.name end,
                coalesce(nullif(p.name, ''), p.repo_name, '')
@@ -73,48 +85,65 @@ enum SupersetDB {
         where b.ended_at is null
         """
 
+    static func bindings() -> [AgentBinding]? {
+        select(bindingsQuery) {
+            AgentBinding(
+                terminalId: $0.text(0) ?? "",
+                workspaceId: $0.text(1) ?? "",
+                sessionId: $0.text(2),
+                eventType: $0.text(3) ?? "",
+                lastEventAt: $0.int(4),
+                title: $0.text(5) ?? "",
+                project: $0.text(6) ?? ""
+            )
+        }
+    }
+
     /// One host DB per Superset organization lives under ~/.superset/host/<orgId>/.
     /// Nil when any read fails, so a busy DB never looks like every agent quit.
-    static func bindings() -> [AgentBinding]? {
+    static func select<T>(_ sql: String, _ map: (Row) -> T) -> [T]? {
         let hostRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".superset/host")
         let orgs = (try? FileManager.default.contentsOfDirectory(atPath: hostRoot.path)) ?? []
-        var all: [AgentBinding] = []
+        var all: [T] = []
         for org in orgs {
             let path = hostRoot.appendingPathComponent("\(org)/host.db").path
             guard FileManager.default.fileExists(atPath: path) else { continue }
-            guard let rows = read(path) else { return nil }
+            guard let rows = read(path, sql, map) else { return nil }
             all += rows
         }
         return all
     }
 
-    private static func read(_ path: String) -> [AgentBinding]? {
+    private static func read<T>(_ path: String, _ sql: String, _ map: (Row) -> T) -> [T]? {
         var db: OpaquePointer?
         defer { sqlite3_close(db) }
         guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return nil }
         sqlite3_busy_timeout(db, 1000)
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
-        var rows: [AgentBinding] = []
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        var rows: [T] = []
         var status = sqlite3_step(statement)
         while status == SQLITE_ROW {
-            func text(_ column: Int32) -> String? {
-                sqlite3_column_text(statement, column).map { String(cString: $0) }
-            }
-            rows.append(AgentBinding(
-                terminalId: text(0) ?? "",
-                workspaceId: text(1) ?? "",
-                sessionId: text(2),
-                eventType: text(3) ?? "",
-                lastEventAt: sqlite3_column_int64(statement, 4),
-                title: text(5) ?? "",
-                project: text(6) ?? ""
-            ))
+            rows.append(map(Row(statement: statement)))
             status = sqlite3_step(statement)
         }
         return status == SQLITE_DONE ? rows : nil
     }
+}
+
+@discardableResult
+func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = arguments
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    guard (try? process.run()) != nil else { return (-1, "") }
+    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
+    return (process.terminationStatus, output)
 }
 
 enum Transcript {

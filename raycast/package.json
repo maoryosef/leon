@@ -1,0 +1,49 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "leon",
+  "title": "Leon",
+  "description": "See what your Superset agents need, keep the Mac awake, and clean up worktrees through the Leon avatar app.",
+  "icon": "leon.png",
+  "author": "maoryosef",
+  "categories": ["Developer Tools"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "tasks",
+      "title": "Leon Tasks",
+      "description": "Agents that need you, failed, finished, or are working, plus Leon's settings.",
+      "mode": "view"
+    },
+    {
+      "name": "cleanup",
+      "title": "Clean Up Workspaces",
+      "description": "Exit agents and delete Superset worktrees in a batch.",
+      "mode": "view"
+    },
+    {
+      "name": "toggle-keep-awake",
+      "title": "Toggle Keep Mac Awake",
+      "description": "Turn Leon's keep-awake mode on or off.",
+      "mode": "no-view"
+    },
+    {
+      "name": "toggle-lid-awake",
+      "title": "Toggle Stay Awake With Lid Closed",
+      "description": "Turn all sleep on or off, lid close included. Asks for your password.",
+      "mode": "no-view"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.6.0",
+    "@raycast/utils": "^2.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "typescript": "^5.9.0"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop"
+  }
+}

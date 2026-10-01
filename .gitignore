@@ -11,3 +11,5 @@ packages/desktop/.devapp/
 packages/desktop/release/
 # native avatar app output
 native/build/
+raycast/dist/
+raycast/raycast-env.d.ts

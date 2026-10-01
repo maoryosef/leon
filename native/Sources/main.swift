@@ -40,14 +40,16 @@ final class AvatarModel: ObservableObject {
     }
     private var sleepAssertion: IOPMAssertionID = 0
     @Published private(set) var lidAwake = false
-    var working = 0
+    var agents: [AgentBinding] = []
+    var working: Int { agents.filter { $0.eventType == "Start" }.count }
+    var onOpenCleanup: (() -> Void)?
     var onHitRegionsChange: (() -> Void)?
     var hitRegions: [String: CGRect] = [:] {
         didSet { onHitRegionsChange?() }
     }
 
     func apply(raised: [Alert], cleared: [String], bindings: [AgentBinding]) {
-        working = bindings.filter { $0.eventType == "Start" }.count
+        agents = bindings
         let replaced = Set(cleared + raised.map(\.id))
         withAnimation(.spring(duration: 0.35)) {
             alerts = Array((alerts.filter { !replaced.contains($0.id) } + raised).suffix(Self.maxAlerts))
@@ -84,33 +86,19 @@ final class AvatarModel: ObservableObject {
 
     func applyLidAwake(_ on: Bool) {
         let command = ["/usr/bin/pmset", "-a", "disablesleep", on ? "1" : "0"]
-        if Self.run("/usr/bin/sudo", ["-n"] + command).status != 0 {
+        if run("/usr/bin/sudo", ["-n"] + command).status != 0 {
             let script = "do shell script \"\(command.joined(separator: " "))\" with prompt "
                 + "\"Leon needs your password to change sleep settings.\" with administrator privileges"
-            Self.run("/usr/bin/osascript", ["-e", script])
+            run("/usr/bin/osascript", ["-e", script])
         }
         refreshLidAwake()
     }
 
     func refreshLidAwake() {
-        let on = Self.run("/usr/bin/pmset", ["-g"]).output.split(separator: "\n").contains {
+        let on = run("/usr/bin/pmset", ["-g"]).output.split(separator: "\n").contains {
             $0.split(whereSeparator: \.isWhitespace) == ["SleepDisabled", "1"]
         }
         DispatchQueue.main.async { self.lidAwake = on }
-    }
-
-    @discardableResult
-    private static func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return (-1, "") }
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        process.waitUntilExit()
-        return (process.terminationStatus, output)
     }
 
     func dismiss(_ alert: Alert) {
@@ -249,6 +237,7 @@ struct Face: View {
                     get: { model.lidAwake },
                     set: { model.setLidAwake($0) }
                 ))
+                Button("Clean up workspaces…") { model.onOpenCleanup?() }
                 Button("Clear alerts") { withAnimation { model.alerts = [] } }.disabled(model.alerts.isEmpty)
                 Divider()
                 Button("Quit Leon") { NSApp.terminate(nil) }
@@ -352,6 +341,9 @@ final class Poller {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AvatarModel()
     private let poller = Poller()
+    private let cleanup = CleanupModel()
+    private var cleanupWindow: NSWindow?
+    private var api: ApiServer?
     private var panel: NSPanel!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -376,6 +368,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         place()
         panel.orderFrontRegardless()
 
+        model.onOpenCleanup = { [weak self] in self?.openCleanup() }
+        api = ApiServer(handle: ApiRoutes(model: model, cleanup: cleanup).handle)
+        api?.start()
         model.onHitRegionsChange = { [weak self] in self?.passClicksOutsideContent() }
         NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
             self?.passClicksOutsideContent()
@@ -403,6 +398,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSRect(x: screen.maxX - size.width, y: screen.minY, width: size.width, height: size.height),
             display: true
         )
+    }
+
+    private func openCleanup() {
+        if cleanupWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 640),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Clean up workspaces"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: CleanupView(model: cleanup))
+            window.center()
+            cleanupWindow = window
+        }
+        if !cleanup.running { cleanup.load() }
+        NSApp.activate(ignoringOtherApps: true)
+        cleanupWindow?.makeKeyAndOrderFront(nil)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

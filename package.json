@@ -19,6 +19,7 @@
     "desktop": "pnpm --filter @leon/web build && pnpm --filter @leon/desktop start",
     "desktop:dist": "pnpm --filter @leon/web build && pnpm --filter @leon/desktop dist",
     "avatar": "sh native/build.sh && open native/build/Leon.app",
+    "raycast": "npm --prefix raycast install && npm --prefix raycast run dev",
     "dev": "pnpm --parallel --filter @leon/daemon --filter @leon/web dev",
     "dev:daemon": "pnpm --filter @leon/daemon dev",
     "dev:web": "pnpm --filter @leon/web dev"

@@ -269,6 +269,64 @@ while an agent waits on you.
   from `~/.claude/projects`. That DB is internal to Superset, so a Superset
   update can break it.
 
+#### Clean up workspaces
+
+Right-click Leon and choose **Clean up workspaces…**. The window lists every
+Superset worktree, grouped by project and by sidebar folder. Tick single
+worktrees, a whole folder, or a whole project. Badges show open terminals,
+agent state, and uncommitted files.
+
+**Exit & delete** asks for confirmation and names the worktrees with
+uncommitted changes. Then Leon:
+
+1. Sends `/exit` to each agent and waits up to 15 s for it to end.
+2. Sends `exit` to each terminal, up to 3 times, because a shell may start
+   tmux first. It closes any terminal that is still open.
+3. Runs `superset workspaces delete --local`. This removes the worktree and
+   forces past uncommitted changes. The branch is kept.
+
+Project checkouts (the `local` workspaces) are never listed.
+
+#### Raycast
+
+A Raycast extension in `raycast/` shows Leon's tasks and runs his actions.
+
+**Install the extension:**
+
+1. Install [Raycast](https://www.raycast.com) and Node.js 22 or newer.
+2. Build and start the avatar app with `pnpm avatar`. The extension talks to
+   it and does nothing without it.
+3. From the repo root, run `pnpm raycast`. It installs the dependencies,
+   builds the extension, and imports it into Raycast.
+4. Wait for `ready - built extension successfully`, then press Ctrl-C. The
+   extension stays in Raycast.
+5. Open Raycast and search for "Leon". To add hotkeys, open Raycast settings,
+   go to Extensions, and select Leon.
+
+| Command | What it does |
+|---|---|
+| Leon Tasks | Agents that need you, failed, finished, or are working. Open one in Superset, dismiss it, or clear all. Also toggles keep-awake, lid-closed awake, and minimize. |
+| Clean Up Workspaces | The same exit-and-delete flow as the avatar window. Enter selects a worktree, ⌘⇧F a whole folder, ⌘⇧P a whole project, ⌘⇧⌫ deletes. |
+| Toggle Keep Mac Awake | One-key toggle. Bind a hotkey in Raycast. |
+| Toggle Stay Awake With Lid Closed | One-key toggle. Asks for your password. |
+
+If the avatar app is not running, the commands offer to launch it.
+
+**Update the extension** after you pull changes or edit `raycast/src`:
+
+1. Run `pnpm raycast`. It installs new dependencies, rebuilds, and imports
+   the new version into Raycast.
+2. Wait for `ready - built extension successfully`, then press Ctrl-C.
+3. If the change also touched `native/`, run `pnpm avatar` too. The extension
+   and the avatar share the API, so update both together.
+
+While you work on the extension, leave `pnpm raycast` running. It rebuilds
+and reloads the extension each time you save a file.
+
+**How it connects:** the avatar serves a small HTTP API on
+`127.0.0.1:5367`. Each launch writes a new token to `~/.leon/avatar-api.json`
+(mode 0600), and every request must send it.
+
 ### Tests & checks
 
 ```sh
