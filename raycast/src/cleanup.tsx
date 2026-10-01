@@ -1,7 +1,7 @@
 import { Action, ActionPanel, Alert, Color, confirmAlert, Icon, List } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { useEffect, useMemo, useState } from "react";
-import { leon, LeonNotRunning, withToast, Worktree, WorktreeList } from "./leon";
+import { leon, LeonNotRunning, teardownMessage, withToast, Worktree, WorktreeList } from "./leon";
 import { NotRunning } from "./not-running";
 
 interface Group {
@@ -69,16 +69,9 @@ export default function Cleanup() {
   const deleteSelected = async () => {
     const targets = data?.workspaces.filter((worktree) => selected.has(worktree.id)) ?? [];
     if (targets.length === 0) return;
-    const dirty = targets.filter((worktree) => worktree.uncommitted > 0);
-    const working = targets.filter((worktree) => worktree.agent === "working" || worktree.agent === "needsYou");
-    const lines = ["Leon sends /exit to each agent, exits each terminal, then deletes the worktrees. Branches are kept."];
-    if (dirty.length > 0) {
-      lines.push(`Uncommitted changes will be lost in: ${dirty.map((worktree) => worktree.name).join(", ")}.`);
-    }
-    if (working.length > 0) lines.push(`${working.length} agent(s) still working will be stopped.`);
     const confirmed = await confirmAlert({
       title: `Delete ${targets.length} worktree${targets.length === 1 ? "" : "s"}?`,
-      message: lines.join("\n\n"),
+      message: teardownMessage(targets),
       icon: Icon.Trash,
       primaryAction: { title: "Exit & Delete", style: Alert.ActionStyle.Destructive },
     });

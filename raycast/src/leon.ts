@@ -56,6 +56,7 @@ export interface SupersetWorkspace {
   lastActivityAt: number;
   terminals: number;
   agent: "" | "needsYou" | "working" | "idle";
+  pr: { number: number; state: "open" | "draft" | "merged" | "closed"; url: string } | null;
 }
 
 export interface WorktreeList {
@@ -111,4 +112,15 @@ export async function withToast(working: string, done: string, action: () => Pro
     toast.style = Toast.Style.Failure;
     toast.title = (error as Error).message;
   }
+}
+
+export function teardownMessage(targets: Worktree[]): string {
+  const lines = ["Leon sends /exit to each agent, exits each terminal, then deletes the worktrees. Branches are kept."];
+  const dirty = targets.filter((worktree) => worktree.uncommitted > 0);
+  if (dirty.length > 0) {
+    lines.push(`Uncommitted changes will be lost in: ${dirty.map((worktree) => worktree.name).join(", ")}.`);
+  }
+  const working = targets.filter((worktree) => worktree.agent === "working" || worktree.agent === "needsYou");
+  if (working.length > 0) lines.push(`${working.length} agent(s) still working will be stopped.`);
+  return lines.join("\n\n");
 }

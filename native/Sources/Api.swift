@@ -165,9 +165,14 @@ struct ApiRoutes {
                (select count(*) from terminal_sessions s where s.origin_workspace_id = w.id and s.status = 'active'),
                (select group_concat(b.last_event_type) from terminal_agent_bindings b
                   join terminal_sessions s on s.id = b.terminal_id and s.status = 'active'
-                  where b.workspace_id = w.id and b.ended_at is null)
+                  where b.workspace_id = w.id and b.ended_at is null),
+               pr.pr_number, pr.state, pr.url
         from workspaces w
         left join projects p on p.id = w.project_id
+        left join pull_requests pr on w.type = 'worktree' and pr.id = coalesce(
+            w.pull_request_id,
+            (select l.pull_request_id from workspace_pull_requests l
+               where l.workspace_id = w.id order by l.linked_at desc limit 1))
         where w.archived_at is null
         order by 8 desc
         """
@@ -189,6 +194,11 @@ struct ApiRoutes {
                 "lastActivityAt": row.int(7),
                 "terminals": row.int(8),
                 "agent": agent,
+                "pr": row.text(10) == nil ? NSNull() : [
+                    "number": row.int(10),
+                    "state": row.text(11) ?? "",
+                    "url": row.text(12) ?? "",
+                ] as Any,
             ] as [String: Any]
         } ?? []
     }
