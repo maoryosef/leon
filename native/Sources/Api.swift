@@ -127,6 +127,8 @@ struct ApiRoutes {
             }
             if let on = request.body["lidAwake"] as? Bool { model.applyLidAwake(on) }
             return .ok(onMain { state() })
+        case "GET /workspaces/open":
+            return .ok(openWorkspaces())
         case "GET /workspaces":
             let items = CleanupModel.fetch()
             return .ok(onMain {
@@ -149,6 +151,46 @@ struct ApiRoutes {
         default:
             return .error(404, "unknown route")
         }
+    }
+
+    private static let openWorkspacesQuery = """
+        select w.id,
+               case when coalesce(w.name, '') in ('', 'local') then w.branch else w.name end,
+               w.branch, w.type, w.worktree_path,
+               coalesce(nullif(p.name, ''), p.repo_name, '(no project)'),
+               (select coalesce(nullif(f.display_name, ''), t.tag) from workspace_tags t
+                  left join tag_folder_settings f on f.scope = w.project_id and f.tag = t.tag
+                  where t.workspace_id = w.id limit 1),
+               coalesce(w.last_activity_at, w.updated_at, w.created_at),
+               (select count(*) from terminal_sessions s where s.origin_workspace_id = w.id and s.status = 'active'),
+               (select group_concat(b.last_event_type) from terminal_agent_bindings b
+                  join terminal_sessions s on s.id = b.terminal_id and s.status = 'active'
+                  where b.workspace_id = w.id and b.ended_at is null)
+        from workspaces w
+        left join projects p on p.id = w.project_id
+        where w.archived_at is null
+        order by 8 desc
+        """
+
+    private func openWorkspaces() -> [[String: Any]] {
+        SupersetDB.select(Self.openWorkspacesQuery) { row in
+            let events = row.text(9) ?? ""
+            let agent = events.contains("PermissionRequest") ? "needsYou"
+                : events.contains("Start") ? "working"
+                : events.isEmpty ? "" : "idle"
+            return [
+                "id": row.text(0) ?? "",
+                "name": row.text(1) ?? "",
+                "branch": row.text(2) ?? "",
+                "type": row.text(3) ?? "",
+                "path": row.text(4) ?? "",
+                "project": row.text(5) ?? "",
+                "folder": row.text(6) ?? "",
+                "lastActivityAt": row.int(7),
+                "terminals": row.int(8),
+                "agent": agent,
+            ] as [String: Any]
+        } ?? []
     }
 
     private func state() -> [String: Any] {

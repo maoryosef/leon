@@ -5,13 +5,21 @@
   "description": "See what your Superset agents need, keep the Mac awake, and clean up worktrees through the Leon avatar app.",
   "icon": "leon.png",
   "author": "maoryosef",
-  "categories": ["Developer Tools"],
+  "categories": [
+    "Developer Tools"
+  ],
   "license": "MIT",
   "commands": [
     {
       "name": "tasks",
       "title": "Leon Tasks",
       "description": "Agents that need you, failed, finished, or are working, plus Leon's settings.",
+      "mode": "view"
+    },
+    {
+      "name": "workspaces",
+      "title": "Open Superset Workspace",
+      "description": "Jump to any open Superset workspace, most recent first.",
       "mode": "view"
     },
     {

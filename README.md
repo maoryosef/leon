@@ -310,6 +310,7 @@ A Raycast extension in `raycast/` shows Leon's tasks and runs his actions.
 | Command | What it does |
 |---|---|
 | Leon Tasks | Agents that need you, failed, finished, or are working. Open one in Superset, dismiss it, or clear all. Also toggles keep-awake, lid-closed awake, and minimize. |
+| Open Superset Workspace | Every open workspace, worktrees and project checkouts, newest activity first. Shows agent state and folder. Enter jumps to it in Superset. ⌘F shows it in Finder. |
 | Clean Up Workspaces | The same exit-and-delete flow as the avatar window. Enter selects a worktree, ⌘⇧F a whole folder, ⌘⇧P a whole project, ⌘⇧⌫ deletes. |
 | Toggle Keep Mac Awake | One-key toggle. Bind a hotkey in Raycast. |
 | Toggle Stay Awake With Lid Closed | One-key toggle. Asks for your password. |

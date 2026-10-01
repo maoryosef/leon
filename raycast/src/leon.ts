@@ -45,6 +45,19 @@ export interface Worktree {
   exists: boolean;
 }
 
+export interface SupersetWorkspace {
+  id: string;
+  name: string;
+  branch: string;
+  type: string;
+  path: string;
+  project: string;
+  folder: string;
+  lastActivityAt: number;
+  terminals: number;
+  agent: "" | "needsYou" | "working" | "idle";
+}
+
 export interface WorktreeList {
   workspaces: Worktree[];
   progress: Record<string, string>;
