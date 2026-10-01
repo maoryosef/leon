@@ -1,5 +1,9 @@
 # Leon
 
+<p align="center">
+  <img src="packages/web/public/leon.png" alt="Leon's avatar" width="160">
+</p>
+
 A sidekick agent that watches over your Claude Code sessions running in tmux —
 and (eventually) helps you drive them, with the personality of Leon Black.
 
