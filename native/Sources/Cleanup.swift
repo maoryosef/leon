@@ -37,6 +37,11 @@ struct ProjectGroup: Identifiable {
 
 enum CheckState { case off, mixed, on }
 
+struct FolderKey: Hashable {
+    let scope: String
+    let tag: String
+}
+
 final class CleanupModel: ObservableObject {
     private static let superset = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".superset/bin/superset").path
@@ -104,6 +109,15 @@ final class CleanupModel: ObservableObject {
         if working > 0 {
             lines.append(working == 1 ? "1 agent is still working. It will be stopped."
                 : "\(working) agents are still working. They will be stopped.")
+        }
+        let emptied = targets.filter { workspace in
+            workspace.folder != nil && workspaces.allSatisfy {
+                $0.projectId != workspace.projectId || $0.folder != workspace.folder || selected.contains($0.id)
+            }
+        }
+        let folderNames = Set(emptied.map { $0.folderName ?? $0.folder ?? "" }).sorted()
+        if !folderNames.isEmpty {
+            lines.append("Folders left empty are removed too: " + folderNames.joined(separator: ", ") + ".")
         }
         return lines.joined(separator: "\n\n")
     }
@@ -211,6 +225,29 @@ final class CleanupModel: ObservableObject {
             } else {
                 report([workspace.id], warnings.isEmpty ? "Deleted" : "Deleted. " + firstLine(warnings[0]))
             }
+        }
+        removeEmptiedFolders(targets)
+    }
+
+    /// A folder that no live workspace uses any more is removed, so a whole
+    /// selected folder leaves Superset's sidebar. A failed delete keeps its
+    /// workspace live, so its folder stays.
+    private func removeEmptiedFolders(_ targets: [CleanupWorkspace]) {
+        let touched = Set(targets.compactMap { workspace in
+            workspace.folder.map { FolderKey(scope: workspace.projectId, tag: $0) }
+        })
+        let usedQuery = """
+            select w.project_id, t.tag from workspace_tags t
+            join workspaces w on w.id = t.workspace_id
+            where w.archived_at is null
+            """
+        guard !touched.isEmpty,
+              let used = SupersetDB.select(usedQuery, { FolderKey(scope: $0.text(0) ?? "", tag: $0.text(1) ?? "") })
+        else { return }
+        for folder in touched.subtracting(used)
+        where SupersetHost.mutate("tagFolders.delete", ["scope": folder.scope, "tag": folder.tag]) {
+            let members = targets.filter { $0.projectId == folder.scope && $0.folder == folder.tag }
+            report(Set(members.map(\.id)), "Deleted. Folder removed.")
         }
     }
 

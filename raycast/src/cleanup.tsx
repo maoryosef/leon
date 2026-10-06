@@ -71,7 +71,7 @@ export default function Cleanup() {
     if (targets.length === 0) return;
     const confirmed = await confirmAlert({
       title: `Delete ${targets.length} worktree${targets.length === 1 ? "" : "s"}?`,
-      message: teardownMessage(targets),
+      message: teardownMessage(targets, data?.workspaces ?? []),
       icon: Icon.Trash,
       primaryAction: { title: "Exit & Delete", style: Alert.ActionStyle.Destructive },
     });

@@ -114,7 +114,8 @@ export async function withToast(working: string, done: string, action: () => Pro
   }
 }
 
-export function teardownMessage(targets: Worktree[]): string {
+/** `all` is every listed worktree, used to tell which folders end up empty. */
+export function teardownMessage(targets: Worktree[], all: Worktree[]): string {
   const lines = ["Leon sends /exit to each agent, exits each terminal, then deletes the worktrees. Branches are kept."];
   const dirty = targets.filter((worktree) => worktree.uncommitted > 0);
   if (dirty.length > 0) {
@@ -122,5 +123,15 @@ export function teardownMessage(targets: Worktree[]): string {
   }
   const working = targets.filter((worktree) => worktree.agent === "working" || worktree.agent === "needsYou");
   if (working.length > 0) lines.push(`${working.length} agent(s) still working will be stopped.`);
+  const ids = new Set(targets.map((worktree) => worktree.id));
+  const emptied = new Set(
+    targets
+      .filter((target) => target.folder)
+      .filter((target) =>
+        all.every((other) => other.projectId !== target.projectId || other.folder !== target.folder || ids.has(other.id)),
+      )
+      .map((target) => target.folder),
+  );
+  if (emptied.size > 0) lines.push(`Folders left empty are removed too: ${[...emptied].join(", ")}.`);
   return lines.join("\n\n");
 }

@@ -288,6 +288,11 @@ uncommitted changes. Then Leon:
    tmux first. It closes any terminal that is still open.
 3. Runs `superset workspaces delete --local`. This removes the worktree and
    forces past uncommitted changes. The branch is kept.
+4. Removes each folder that no live workspace uses any more, so a whole
+   selected folder leaves Superset's sidebar. A folder keeps its place while
+   any of its workspaces is still there, for example after a failed delete.
+   Superset's CLI has no folder command, so Leon calls the host service's
+   `tagFolders.delete` route with the token from its manifest.
 
 Project checkouts (the `local` workspaces) are never listed.
 

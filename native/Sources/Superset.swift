@@ -132,6 +132,45 @@ enum SupersetDB {
     }
 }
 
+/// Superset's host service, one per organization, spoken to over its
+/// tRPC HTTP route. Internal API: the CLI has no folder commands.
+enum SupersetHost {
+    static func mutate(_ procedure: String, _ input: [String: Any]) -> Bool {
+        endpoints().contains { post($0.url, $0.token, procedure, input) }
+    }
+
+    private static func endpoints() -> [(url: String, token: String)] {
+        let hostRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".superset/host")
+        let orgs = (try? FileManager.default.contentsOfDirectory(atPath: hostRoot.path)) ?? []
+        return orgs.compactMap { org in
+            let file = hostRoot.appendingPathComponent("\(org)/manifest.json")
+            guard let data = try? Data(contentsOf: file),
+                  let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let url = manifest["endpoint"] as? String,
+                  let token = manifest["authToken"] as? String
+            else { return nil }
+            return (url, token)
+        }
+    }
+
+    private static func post(_ endpoint: String, _ token: String, _ procedure: String, _ input: [String: Any]) -> Bool {
+        guard let url = URL(string: "\(endpoint)/trpc/\(procedure)") else { return false }
+        var request = URLRequest(url: url, timeoutInterval: 5)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["json": input])
+        let done = DispatchSemaphore(value: 0)
+        var ok = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            ok = (response as? HTTPURLResponse)?.statusCode == 200
+            done.signal()
+        }.resume()
+        done.wait()
+        return ok
+    }
+}
+
 @discardableResult
 func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String) {
     let process = Process()

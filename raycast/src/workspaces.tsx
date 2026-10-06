@@ -23,7 +23,7 @@ async function teardown(workspace: SupersetWorkspace) {
   }
   const confirmed = await confirmAlert({
     title: `Delete ${workspace.name}?`,
-    message: teardownMessage([target]),
+    message: teardownMessage([target], before.workspaces),
     icon: Icon.Trash,
     primaryAction: { title: "Exit & Delete", style: Alert.ActionStyle.Destructive },
   });
