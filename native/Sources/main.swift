@@ -41,7 +41,7 @@ final class AvatarModel: ObservableObject {
     private var sleepAssertion: IOPMAssertionID = 0
     @Published private(set) var lidAwake = false
     var agents: [AgentBinding] = []
-    var working: Int { agents.filter { $0.eventType == "Start" }.count }
+    @Published private(set) var working = 0
     var onOpenCleanup: (() -> Void)?
     var onHitRegionsChange: (() -> Void)?
     var hitRegions: [String: CGRect] = [:] {
@@ -50,6 +50,8 @@ final class AvatarModel: ObservableObject {
 
     func apply(raised: [Alert], cleared: [String], bindings: [AgentBinding]) {
         agents = bindings
+        let count = bindings.filter { $0.eventType == "Start" }.count
+        if count != working { working = count }
         let replaced = Set(cleared + raised.map(\.id))
         withAnimation(.spring(duration: 0.35)) {
             alerts = Array((alerts.filter { !replaced.contains($0.id) } + raised).suffix(Self.maxAlerts))
@@ -203,6 +205,9 @@ struct Face: View {
                         Circle().fill(Color.purple).padding(-4).blur(radius: 6)
                     }
                 }
+                .background {
+                    if model.working > 0 { Aura().frame(width: 2 * size, height: 2 * size) }
+                }
                 .overlay {
                     if model.lidAwake {
                         Circle()
@@ -283,6 +288,66 @@ struct Face: View {
                 .offset(x: 4, y: -4)
         }
     }
+}
+
+/// A halo that breathes in and out while an agent works. It is laid out at
+/// twice the face's size, because a layer drawn past its view's bounds is
+/// clipped. Core Animation runs it in the render server: SwiftUI clocks and repeating animations redraw
+/// in-process at up to 120 fps and cost 5-11% CPU.
+struct Aura: NSViewRepresentable {
+    final class HaloView: NSView {
+        private let halo = CALayer()
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            let glow = NSColor(red: 0.25, green: 0.85, blue: 1, alpha: 1)
+            halo.contents = NSImage(size: NSSize(width: 128, height: 128), flipped: false) { rect in
+                let colors = [glow, glow.withAlphaComponent(0.85), glow.withAlphaComponent(0)].map(\.cgColor)
+                guard let context = NSGraphicsContext.current?.cgContext,
+                      let gradient = CGGradient(colorsSpace: nil, colors: colors as CFArray, locations: [0, 0.55, 1])
+                else { return false }
+                let center = CGPoint(x: rect.midX, y: rect.midY)
+                context.drawRadialGradient(
+                    gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: rect.width / 2, options: []
+                )
+                return true
+            }
+            halo.contentsGravity = .resize
+            halo.transform = CATransform3DMakeScale(0.75, 0.75, 1)
+            halo.opacity = 0.65
+            layer?.addSublayer(halo)
+
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = 0.62
+            scale.toValue = 0.88
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.95
+            fade.toValue = 0.35
+            let breath = CAAnimationGroup()
+            breath.animations = [scale, fade]
+            breath.duration = 0.8
+            breath.autoreverses = true
+            breath.repeatCount = .infinity
+            breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            breath.isRemovedOnCompletion = false
+            halo.add(breath, forKey: "breath")
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            halo.bounds = bounds
+            halo.position = CGPoint(x: bounds.midX, y: bounds.midY)
+            CATransaction.commit()
+        }
+    }
+
+    func makeNSView(context: Context) -> HaloView { HaloView() }
+    func updateNSView(_ view: HaloView, context: Context) {}
 }
 
 struct AvatarView: View {
