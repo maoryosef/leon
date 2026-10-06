@@ -391,8 +391,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The panel never resizes: resizing mid-animation makes SwiftUI slide
     /// content from the old top-left corner. Its empty area lets clicks through.
+    /// The first screen is the one with the menu bar; `NSScreen.main` follows
+    /// the key window and strands Leon on whichever display had focus.
     private func place() {
-        guard let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        guard let screen = NSScreen.screens.first?.visibleFrame else { return }
         let size = CGSize(width: 330, height: min(screen.height, 760))
         panel.setFrame(
             NSRect(x: screen.maxX - size.width, y: screen.minY, width: size.width, height: size.height),
