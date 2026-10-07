@@ -63,12 +63,12 @@ final class AvatarModel: ObservableObject {
         }
     }
 
-    /// Same as `caffeinate -i`: idle system sleep is blocked, the display may
-    /// still sleep. macOS drops the assertion if Leon quits.
+    /// Same as `caffeinate -d`: the display stays on, which also keeps the Mac
+    /// awake. macOS drops the assertion if Leon quits.
     private func holdSleepAssertion(_ hold: Bool) {
         if hold, sleepAssertion == 0 {
             let result = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
                 IOPMAssertionLevel(kIOPMAssertionLevelOn),
                 "Leon is keeping the Mac awake" as CFString,
                 &sleepAssertion

@@ -259,7 +259,8 @@ while an agent waits on you.
 
 - Click Leon for a summary. Hover and press **–** to minimize him.
 - Right-click Leon to restore, clear alerts, or quit. He has no Dock icon.
-- Right-click **Keep Mac awake** to stop idle sleep, like `caffeinate -i`.
+- Right-click **Keep Mac awake** to keep the screen on and the Mac awake,
+  like `caffeinate -d`.
   A coffee cup on Leon shows it is on. Click the cup to turn it off. It turns
   off when Leon quits.
 - Right-click **Stay awake with lid closed** to turn off all sleep, lid close
