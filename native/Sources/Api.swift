@@ -117,6 +117,20 @@ struct ApiRoutes {
         switch "\(request.method) /\(path.joined(separator: "/"))" {
         case "GET /state":
             return .ok(onMain { state() })
+        case "POST /alerts":
+            guard let title = request.body["title"] as? String, !title.isEmpty else {
+                return .error(400, "title is required")
+            }
+            let alert = Alert(
+                id: "blip-\(UUID().uuidString)",
+                kind: request.body["ok"] as? Bool == false ? .failed : .finished,
+                workspaceId: request.body["workspaceId"] as? String ?? "",
+                title: title,
+                project: request.body["project"] as? String ?? "",
+                preview: request.body["message"] as? String
+            )
+            onMain { model.apply(raised: [alert], cleared: [], bindings: model.agents) }
+            return .ok(["id": alert.id])
         case "POST /alerts/clear":
             onMain { model.alerts = [] }
             return .ok()

@@ -50,16 +50,18 @@ export default function Tasks() {
 
   const alertActions = (alert: LeonAlert) => (
     <ActionPanel>
-      <Action
-        title="Open in Superset"
-        icon={Icon.ArrowRight}
-        onAction={() =>
-          act("Opening…", "Opened in Superset", async () => {
-            await openWorkspace(alert.workspaceId);
-            await leon(`/alerts/${alert.id}/dismiss`, {});
-          })
-        }
-      />
+      {alert.workspaceId && (
+        <Action
+          title="Open in Superset"
+          icon={Icon.ArrowRight}
+          onAction={() =>
+            act("Opening…", "Opened in Superset", async () => {
+              await openWorkspace(alert.workspaceId);
+              await leon(`/alerts/${alert.id}/dismiss`, {});
+            })
+          }
+        />
+      )}
       <Action
         title="Dismiss"
         icon={Icon.XMarkCircle}

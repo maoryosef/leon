@@ -274,6 +274,32 @@ while an agent waits on you.
   from `~/.claude/projects`. That DB is internal to Superset, so a Superset
   update can break it.
 
+#### Alerts from the shell (`blip`)
+
+Wrap a long command in `blip` and Leon pops a bubble when it ends:
+
+```sh
+blip pnpm test
+```
+
+The bubble is green when the command succeeds and red when it fails. It shows
+the command, the exit code, and how long it took. Inside a Superset terminal,
+clicking it opens that workspace. When Leon is not running, `blip` plays a
+sound instead.
+
+`blip` is a zsh function in the dotfiles repo. It posts to the avatar's local
+API, which any script can call:
+
+```sh
+curl -X POST "http://127.0.0.1:5367/alerts" \
+  -H "Authorization: Bearer $(plutil -extract token raw -o - ~/.leon/avatar-api.json)" \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "nightly build", "message": "Done in 4m 2s", "ok": true}'
+```
+
+`title` is required. `message`, `ok` (false shows a failure), `project`, and
+`workspaceId` (a Superset workspace to open on click) are optional.
+
 #### Clean up workspaces
 
 Right-click Leon and choose **Clean up workspaces…**. The window lists every

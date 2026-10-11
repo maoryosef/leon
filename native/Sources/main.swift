@@ -108,7 +108,7 @@ final class AvatarModel: ObservableObject {
     }
 
     func open(_ alert: Alert) {
-        if let url = URL(string: "superset://v2-workspace/\(alert.workspaceId)") {
+        if !alert.workspaceId.isEmpty, let url = URL(string: "superset://v2-workspace/\(alert.workspaceId)") {
             NSWorkspace.shared.open(url)
         }
         dismiss(alert)
@@ -167,7 +167,7 @@ struct Bubble: View {
         .onHover { hovering = $0 }
         .hitRegion(alert.id, model)
         .onTapGesture { model.open(alert) }
-        .help("Open in Superset")
+        .help(alert.workspaceId.isEmpty ? "Dismiss" : "Open in Superset")
         .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 }
