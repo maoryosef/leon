@@ -31,9 +31,12 @@ extension AlertKind {
 
 final class AvatarModel: ObservableObject {
     static let maxAlerts = 5
+    static let padding: CGFloat = 14
 
     @Published var alerts: [Alert] = []
     @Published var minimized = false
+    @Published var anchor: Alignment = .bottomTrailing
+    var faceSize: CGFloat { minimized ? 34 : 64 }
     @Published var note: String?
     @Published var keepAwake = false {
         didSet { holdSleepAssertion(keepAwake) }
@@ -43,6 +46,7 @@ final class AvatarModel: ObservableObject {
     var agents: [AgentBinding] = []
     @Published private(set) var working = 0
     var onOpenCleanup: (() -> Void)?
+    var onDrag: ((_ translation: CGSize, _ ended: Bool) -> Void)?
     var onHitRegionsChange: (() -> Void)?
     var hitRegions: [String: CGRect] = [:] {
         didSet { onHitRegionsChange?() }
@@ -168,7 +172,7 @@ struct Bubble: View {
         .hitRegion(alert.id, model)
         .onTapGesture { model.open(alert) }
         .help(alert.workspaceId.isEmpty ? "Dismiss" : "Open in Superset")
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+        .transition(.move(edge: model.anchor.horizontal == .leading ? .leading : .trailing).combined(with: .opacity))
     }
 }
 
@@ -177,7 +181,7 @@ struct Face: View {
     @State private var hovering = false
     private static let image = Bundle.main.image(forResource: "leon") ?? NSImage()
 
-    private var size: CGFloat { model.minimized ? 34 : 64 }
+    private var size: CGFloat { model.faceSize }
     private var needsYou: Bool { model.alerts.contains { $0.kind == .needsYou } }
     private var ring: Color {
         if needsYou { return .orange }
@@ -232,6 +236,7 @@ struct Face: View {
                 }
             }
             .onHover { hovering = $0 }
+            .gesture(DragGesture().onChanged { model.onDrag?($0.translation, false) }.onEnded { model.onDrag?($0.translation, true) })
             .onTapGesture {
                 if model.minimized { withAnimation(.spring(duration: 0.2)) { model.minimized = false } } else { model.showSummary() }
             }
@@ -354,23 +359,26 @@ struct AvatarView: View {
     @ObservedObject var model: AvatarModel
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        ZStack(alignment: model.anchor) {
             if !model.minimized {
-                ForEach(model.alerts) { Bubble(alert: $0, model: model) }
-                if let note = model.note {
-                    Text(note)
-                        .font(.callout)
-                        .padding(10)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-                        .transition(.opacity)
+                VStack(alignment: model.anchor.horizontal, spacing: 8) {
+                    ForEach(model.alerts) { Bubble(alert: $0, model: model) }
+                    if let note = model.note {
+                        Text(note)
+                            .font(.callout)
+                            .padding(10)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                            .transition(.opacity)
+                    }
                 }
+                .padding(model.anchor.vertical == .top ? .top : .bottom, model.faceSize + 8)
             }
             Face(model: model)
         }
-        .padding(14)
+        .padding(AvatarModel.padding)
         .fixedSize()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.anchor)
     }
 }
 
@@ -410,6 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cleanupWindow: NSWindow?
     private var api: ApiServer?
     private var panel: NSPanel!
+    private var dragStart: (mouse: CGPoint, origin: CGPoint)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = NSPanel(
@@ -434,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
 
         model.onOpenCleanup = { [weak self] in self?.openCleanup() }
+        model.onDrag = { [weak self] in self?.drag(translation: $0, ended: $1) }
         api = ApiServer(handle: ApiRoutes(model: model, cleanup: cleanup).handle)
         api?.start()
         model.onHitRegionsChange = { [weak self] in self?.passClicksOutsideContent() }
@@ -458,13 +468,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// content from the old top-left corner. Its empty area lets clicks through.
     /// The first screen is the one with the menu bar; `NSScreen.main` follows
     /// the key window and strands Leon on whichever display had focus.
-    private func place() {
-        guard let screen = NSScreen.screens.first?.visibleFrame else { return }
-        let size = CGSize(width: 330, height: min(screen.height, 760))
-        panel.setFrame(
-            NSRect(x: screen.maxX - size.width, y: screen.minY, width: size.width, height: size.height),
-            display: true
+    /// Bubbles open toward the larger free side of the screen, and the panel
+    /// ends at the screen edge, so every message stays visible. A saved spot
+    /// on a display that is gone falls back to the primary screen.
+    private func place(face saved: CGPoint? = nil) {
+        let saved = saved ?? UserDefaults.standard.string(forKey: "face").map(NSPointFromString)
+        let screen = NSScreen.screens.first { saved.map($0.visibleFrame.contains) ?? false } ?? NSScreen.screens.first
+        let inset = faceInset
+        guard let bounds = screen?.visibleFrame.insetBy(dx: inset, dy: inset) else { return }
+        let face = CGPoint(
+            x: min(max(saved?.x ?? bounds.maxX, bounds.minX), bounds.maxX),
+            y: min(max(saved?.y ?? bounds.minY, bounds.minY), bounds.maxY)
         )
+        let left = face.x < bounds.midX, top = face.y > bounds.midY
+        let width: CGFloat = 330
+        let height = min(760, (top ? face.y - bounds.minY : bounds.maxY - face.y) + 2 * inset)
+        model.anchor = Alignment(horizontal: left ? .leading : .trailing, vertical: top ? .top : .bottom)
+        panel.setFrame(NSRect(
+            x: left ? face.x - inset : face.x + inset - width,
+            y: top ? face.y + inset - height : face.y - inset,
+            width: width, height: height
+        ), display: true)
+        UserDefaults.standard.set(NSStringFromPoint(face), forKey: "face")
+    }
+
+    private var faceInset: CGFloat { AvatarModel.padding + model.faceSize / 2 }
+
+    private var faceCenter: CGPoint {
+        let frame = panel.frame, inset = faceInset
+        return CGPoint(
+            x: model.anchor.horizontal == .leading ? frame.minX + inset : frame.maxX - inset,
+            y: model.anchor.vertical == .top ? frame.maxY - inset : frame.minY + inset
+        )
+    }
+
+    /// Tracks the mouse in screen points: the gesture's translation is in
+    /// window points, and is right only before the window first moves.
+    private func drag(translation: CGSize, ended: Bool) {
+        let mouse = NSEvent.mouseLocation
+        let start = dragStart ?? (CGPoint(x: mouse.x - translation.width, y: mouse.y + translation.height), panel.frame.origin)
+        dragStart = ended ? nil : start
+        panel.setFrameOrigin(CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y))
+        if ended { place(face: faceCenter) }
     }
 
     private func openCleanup() {
@@ -491,7 +536,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
+    /// Held still while a button is down: flipping mid-drag sends the rest of
+    /// the drag, and its mouse-up, to the app behind Leon.
     private func passClicksOutsideContent() {
+        guard NSEvent.pressedMouseButtons == 0 else { return }
         let mouse = NSEvent.mouseLocation
         let point = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)
         panel.ignoresMouseEvents = !model.hitRegions.values.contains {
