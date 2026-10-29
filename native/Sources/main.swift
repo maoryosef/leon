@@ -43,9 +43,15 @@ final class AvatarModel: ObservableObject {
     }
     private var sleepAssertion: IOPMAssertionID = 0
     @Published private(set) var lidAwake = false
-    var agents: [AgentBinding] = []
+    @Published var agents: [AgentBinding] = []
+    @Published var remoteWorkspaces: [FocusItem] = []
+    @Published var merged: Set<String> = []
+    @Published var focus = AvatarModel.savedFocus() {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(focus), forKey: "focus") }
+    }
     @Published private(set) var working = 0
     var onOpenCleanup: (() -> Void)?
+    var onShowFocus: (() -> Void)?
     var onDrag: ((_ translation: CGSize, _ ended: Bool) -> Void)?
     var onHitRegionsChange: (() -> Void)?
     var hitRegions: [String: CGRect] = [:] {
@@ -53,7 +59,7 @@ final class AvatarModel: ObservableObject {
     }
 
     func apply(raised: [Alert], cleared: [String], bindings: [AgentBinding]) {
-        agents = bindings
+        if bindings != agents { agents = bindings }
         let count = bindings.filter { $0.eventType == "Start" }.count
         if count != working { working = count }
         let replaced = Set(cleared + raised.map(\.id))
@@ -247,6 +253,7 @@ struct Face: View {
                     get: { model.lidAwake },
                     set: { model.setLidAwake($0) }
                 ))
+                Button("Show focus dock") { model.onShowFocus?() }
                 Button("Clean up workspaces…") { model.onOpenCleanup?() }
                 Button("Clear alerts") { withAnimation { model.alerts = [] } }.disabled(model.alerts.isEmpty)
                 Divider()
@@ -384,14 +391,17 @@ struct AvatarView: View {
 
 final class Poller {
     private var tracker = Tracker()
+    private let remote = RemoteHosts()
     private let queue = DispatchQueue(label: "leon.poller")
     private var timer: DispatchSourceTimer?
 
-    func start(onUpdate: @escaping ([Alert], [String], [AgentBinding]) -> Void) {
+    func start(onUpdate: @escaping ([Alert], [String], [AgentBinding], [FocusItem]) -> Void) {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: 1.5)
         timer.setEventHandler { [self] in
-            guard let bindings = SupersetDB.bindings() else { return }
+            guard let local = SupersetDB.bindings() else { return }
+            remote.refresh()
+            let bindings = local + remote.bindings
             let changes = tracker.update(bindings, nowMs: Int64(Date().timeIntervalSince1970 * 1000))
             let raised = changes.raised.compactMap { binding -> Alert? in
                 guard let kind = AlertKind(eventType: binding.eventType) else { return nil }
@@ -404,7 +414,8 @@ final class Poller {
                     preview: Transcript.preview(sessionId: binding.sessionId)
                 )
             }
-            DispatchQueue.main.async { onUpdate(raised, changes.cleared, bindings) }
+            let workspaces = remote.workspaces
+            DispatchQueue.main.async { onUpdate(raised, changes.cleared, bindings, workspaces) }
         }
         timer.resume()
         self.timer = timer
@@ -418,7 +429,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cleanupWindow: NSWindow?
     private var api: ApiServer?
     private var panel: NSPanel!
-    private var dragStart: (mouse: CGPoint, origin: CGPoint)?
+    private var dragging = PanelDrag()
+    private var focusDock: FocusDock?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = NSPanel(
@@ -443,6 +455,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
 
         model.onOpenCleanup = { [weak self] in self?.openCleanup() }
+        focusDock = FocusDock(model: model) { [weak self] in self?.panel.screen ?? NSScreen.screens.first }
+        model.onShowFocus = { [weak self] in self?.focusDock?.visible = true }
         model.onDrag = { [weak self] in self?.drag(translation: $0, ended: $1) }
         api = ApiServer(handle: ApiRoutes(model: model, cleanup: cleanup).handle)
         api?.start()
@@ -459,8 +473,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.place() }
 
-        poller.start { [model] raised, cleared, bindings in
+        poller.start { [model] raised, cleared, bindings, workspaces in
             model.apply(raised: raised, cleared: cleared, bindings: bindings)
+            if model.remoteWorkspaces != workspaces { model.remoteWorkspaces = workspaces }
         }
     }
 
@@ -469,17 +484,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The first screen is the one with the menu bar; `NSScreen.main` follows
     /// the key window and strands Leon on whichever display had focus.
     /// Bubbles open toward the larger free side of the screen, and the panel
-    /// ends at the screen edge, so every message stays visible. A saved spot
-    /// on a display that is gone falls back to the primary screen.
-    private func place(face saved: CGPoint? = nil) {
-        let saved = saved ?? UserDefaults.standard.string(forKey: "face").map(NSPointFromString)
-        let screen = NSScreen.screens.first { saved.map($0.visibleFrame.contains) ?? false } ?? NSScreen.screens.first
+    /// ends at the screen edge, so every message stays visible. The spot is
+    /// kept as a share of the screen, so a corner stays a corner on another
+    /// display. A display that is gone falls back to the primary screen.
+    private func place(face dropped: CGPoint? = nil) {
+        let defaults = UserDefaults.standard
+        let screen = dropped.flatMap { point in NSScreen.screens.first { $0.visibleFrame.contains(point) } }
+            ?? NSScreen.screens.first { $0.displayID == defaults.integer(forKey: "screen") }
+            ?? NSScreen.screens.first
+        guard let screen else { return }
         let inset = faceInset
-        guard let bounds = screen?.visibleFrame.insetBy(dx: inset, dy: inset) else { return }
-        let face = CGPoint(
-            x: min(max(saved?.x ?? bounds.maxX, bounds.minX), bounds.maxX),
-            y: min(max(saved?.y ?? bounds.minY, bounds.minY), bounds.maxY)
-        )
+        let bounds = screen.visibleFrame.insetBy(dx: inset, dy: inset)
+        let spot = dropped.map(bounds.spot) ?? defaults.string(forKey: "spot").map(NSPointFromString) ?? CGPoint(x: 1, y: 0)
+        let face = bounds.point(at: spot)
         let left = face.x < bounds.midX, top = face.y > bounds.midY
         let width: CGFloat = 330
         let height = min(760, (top ? face.y - bounds.minY : bounds.maxY - face.y) + 2 * inset)
@@ -489,7 +506,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             y: top ? face.y + inset - height : face.y - inset,
             width: width, height: height
         ), display: true)
-        UserDefaults.standard.set(NSStringFromPoint(face), forKey: "face")
+        defaults.set(NSStringFromPoint(spot), forKey: "spot")
+        defaults.set(screen.displayID, forKey: "screen")
+        focusDock?.place()
     }
 
     private var faceInset: CGFloat { AvatarModel.padding + model.faceSize / 2 }
@@ -502,13 +521,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Tracks the mouse in screen points: the gesture's translation is in
-    /// window points, and is right only before the window first moves.
     private func drag(translation: CGSize, ended: Bool) {
-        let mouse = NSEvent.mouseLocation
-        let start = dragStart ?? (CGPoint(x: mouse.x - translation.width, y: mouse.y + translation.height), panel.frame.origin)
-        dragStart = ended ? nil : start
-        panel.setFrameOrigin(CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y))
+        dragging.move(panel, translation: translation, ended: ended)
         if ended { place(face: faceCenter) }
     }
 
@@ -548,6 +562,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Tracks the mouse in screen points: the gesture's translation is in
+/// window points, and is right only before the window first moves.
+struct PanelDrag {
+    private var start: (mouse: CGPoint, origin: CGPoint)?
+
+    mutating func move(_ window: NSWindow, translation: CGSize, ended: Bool) {
+        let mouse = NSEvent.mouseLocation
+        let start = start ?? (CGPoint(x: mouse.x - translation.width, y: mouse.y + translation.height), window.frame.origin)
+        self.start = ended ? nil : start
+        window.setFrameOrigin(CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y))
+    }
+}
+
+extension CGRect {
+    /// Where a point sits in the rect: (0, 0) is the bottom left, (1, 1) the
+    /// top right. A point outside is pulled to the nearest edge.
+    func spot(of point: CGPoint) -> CGPoint {
+        CGPoint(x: min(max((point.x - minX) / width, 0), 1), y: min(max((point.y - minY) / height, 0), 1))
+    }
+
+    func point(at spot: CGPoint) -> CGPoint {
+        CGPoint(x: minX + spot.x * width, y: minY + spot.y * height)
+    }
+}
+
+extension NSScreen {
+    var displayID: Int { deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? Int ?? 0 }
+}
+
 extension View {
     func hitRegion(_ id: String, _ model: AvatarModel) -> some View {
         onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.hitRegions[id] = $0 }
@@ -557,6 +600,12 @@ extension View {
 
 if CommandLine.arguments.contains("--self-test") {
     trackerSelfTest()
+    focusSelfTest()
+    let laptop = CGRect(x: 0, y: 0, width: 1700, height: 1000)
+    let monitor = CGRect(x: -3400, y: 0, width: 3400, height: 1400)
+    let corner = laptop.spot(of: CGPoint(x: 1750, y: -20))
+    precondition(monitor.point(at: corner) == CGPoint(x: 0, y: 0), "bottom-right stays bottom-right on another screen")
+    precondition(monitor.point(at: laptop.spot(of: CGPoint(x: 850, y: 500))) == CGPoint(x: -1700, y: 700), "middle stays middle")
     exit(0)
 }
 

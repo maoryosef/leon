@@ -31,12 +31,13 @@ struct Changes {
 
 /// Turns polled agent states into alerts. Superset also maps auto-approved
 /// PreToolUse events to "PermissionRequest", so a request only counts once it
-/// has been waiting for `attentionDelayMs`.
+/// has been waiting for `attentionDelayMs`. A terminal first seen already
+/// finished is a baseline, not news: at startup, or when a remote host's
+/// agents first load.
 struct Tracker {
     static let attentionDelayMs: Int64 = 2500
 
     private var handled: [String: Int64] = [:]
-    private var primed = false
 
     mutating func update(_ bindings: [AgentBinding], nowMs: Int64) -> Changes {
         var changes = Changes()
@@ -51,13 +52,12 @@ struct Tracker {
                 guard nowMs - binding.lastEventAt >= Self.attentionDelayMs else { continue }
                 changes.raised.append(binding)
             case .finished, .failed:
-                if primed { changes.raised.append(binding) }
+                if handled[binding.terminalId] != nil { changes.raised.append(binding) }
             case nil:
                 changes.cleared.append(binding.terminalId)
             }
             handled[binding.terminalId] = binding.lastEventAt
         }
-        primed = true
         return changes
     }
 }
@@ -245,5 +245,6 @@ func trackerSelfTest() {
 
     var fresh = Tracker()
     precondition(fresh.update([binding("PermissionRequest", at: 0)], nowMs: 5000).raised.count == 1, "waiting at startup raises")
+    precondition(fresh.update([binding("Stop", at: 0, id: "remote")], nowMs: 6000).raised.isEmpty, "a terminal first seen done is baseline")
     print("tracker self-test passed")
 }
